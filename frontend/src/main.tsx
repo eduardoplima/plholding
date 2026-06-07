@@ -6,11 +6,11 @@ import { Toaster, toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users2, FileText, AlertCircle,
   ReceiptText, Landmark, FolderOpen, UserCog, LogOut,
-  Plus, Pencil, Trash2, X, Download, Upload, DoorClosed,
+  Plus, Pencil, Trash2, X, Download, Upload, DoorClosed, ArrowLeftRight, Check, Ban, Wallet, Link2, ChevronDown,
 } from 'lucide-react';
 import {
-  api, brDate, clearTokens, Debt, DocItem, downloadDocument, Expense, Lease, List, money,
-  Property, setTokens, Tenant, Unit, User,
+  api, BankTxn, brDate, clearTokens, Debt, DocItem, downloadDocument, Expense, Lease, List, money,
+  Property, ReconChargeRow, ReconChargesResp, ReconSummary, RentCharge, setTokens, Tenant, Unit, User,
 } from './api/client';
 import './styles.css';
 import logoLight from './assets/logo-final/pl-logo-light.svg';
@@ -124,7 +124,7 @@ function Login() {
   );
 }
 
-type NavKey = 'dashboard' | 'imoveis' | 'inquilinos' | 'contratos' | 'inadimplencia' | 'despesas' | 'patrimonio' | 'documentos' | 'usuarios';
+type NavKey = 'dashboard' | 'imoveis' | 'inquilinos' | 'contratos' | 'inadimplencia' | 'conciliacao' | 'extrato' | 'despesas' | 'patrimonio' | 'documentos' | 'usuarios';
 
 const navItems: { key: NavKey; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
   { key: 'dashboard',     label: 'Dashboard',         icon: <LayoutDashboard size={16} className="pl-nav-icon" /> },
@@ -132,6 +132,8 @@ const navItems: { key: NavKey; label: string; icon: React.ReactNode; adminOnly?:
   { key: 'inquilinos',    label: 'Inquilinos',         icon: <Users2 size={16} className="pl-nav-icon" /> },
   { key: 'contratos',     label: 'Contratos',          icon: <FileText size={16} className="pl-nav-icon" /> },
   { key: 'inadimplencia', label: 'Inadimplência',      icon: <AlertCircle size={16} className="pl-nav-icon" /> },
+  { key: 'conciliacao',   label: 'Conciliação',        icon: <ArrowLeftRight size={16} className="pl-nav-icon" /> },
+  { key: 'extrato',       label: 'Extrato',            icon: <Wallet size={16} className="pl-nav-icon" /> },
   { key: 'despesas',      label: 'Despesas',           icon: <ReceiptText size={16} className="pl-nav-icon" /> },
   { key: 'patrimonio',    label: 'Patrimônio & Dívidas', icon: <Landmark size={16} className="pl-nav-icon" /> },
   { key: 'documentos',    label: 'Documentos',         icon: <FolderOpen size={16} className="pl-nav-icon" /> },
@@ -180,6 +182,8 @@ function AppShell() {
           {tab === 'inquilinos'    && <Tenants />}
           {tab === 'contratos'     && <Leases />}
           {tab === 'inadimplencia' && <Delinquency />}
+          {tab === 'conciliacao'   && <Conciliacao />}
+          {tab === 'extrato'       && <Extrato />}
           {tab === 'despesas'      && <Expenses />}
           {tab === 'patrimonio'    && <Patrimony />}
           {tab === 'documentos'    && <Documents />}
@@ -354,6 +358,7 @@ function Inventory() {
   const props = useQuery({ queryKey: ['properties'], queryFn: () => api<List<Property>>('/properties') });
   const [editing, setEditing] = useState<Property | null | undefined>(undefined); // undefined=closed, null=new
   const [unitsOf, setUnitsOf] = useState<Property | null>(null);
+  const [occupancyOf, setOccupancyOf] = useState<Property | null>(null);
 
   const del = useMutation({
     mutationFn: (id: number) => api<void>(`/properties/${id}`, { method: 'DELETE' }),
@@ -375,7 +380,7 @@ function Inventory() {
       {!props.isLoading && !!props.data?.items?.length && (
         <DataTable>
           <thead>
-            <tr><th>Nome</th><th>Tipo</th><th>Matrícula</th><th>Valor de mercado</th><th>Unidades</th>{canWrite && <th></th>}</tr>
+            <tr><th>Nome</th><th>Tipo</th><th>Matrícula</th><th>Valor de mercado</th><th>Ocupação</th>{canWrite && <th></th>}</tr>
           </thead>
           <tbody>
             {props.data!.items.map((p) => (
@@ -384,7 +389,9 @@ function Inventory() {
                 <td>{kindLabel(p.kind)}</td>
                 <td className="pl-mono">{p.matricula ?? '—'}</td>
                 <td>{money(p.market_value)}</td>
-                <td>{p.units?.length ? `${p.units.length} un. — ${p.units.map((u) => `${u.name} (${statusLabel(u.status)})`).join(', ')}` : '—'}</td>
+                <td>{p.units?.length
+                  ? <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => setOccupancyOf(p)}>{p.units.filter((u) => u.status === 'occupied').length}/{p.units.length} ocupadas</button>
+                  : '—'}</td>
                 {canWrite && (
                   <td>
                     <RowActions>
@@ -401,7 +408,40 @@ function Inventory() {
       )}
       {editing !== undefined && <PropertyForm property={editing} onClose={() => setEditing(undefined)} />}
       {unitsOf && <UnitsManager property={unitsOf} onClose={() => setUnitsOf(null)} />}
+      {occupancyOf && <OccupancyModal property={occupancyOf} onClose={() => setOccupancyOf(null)} />}
     </Page>
+  );
+}
+
+function OccupancyModal({ property, onClose }: { property: Property; onClose: () => void }) {
+  const units = useQuery({ queryKey: ['units', property.id], queryFn: () => api<List<Unit>>(`/units?property_id=${property.id}`) });
+  const leases = useQuery({ queryKey: ['leases'], queryFn: () => api<List<Lease>>('/leases?limit=500') });
+  const tenantFor = (unitId: number) => {
+    const active = leases.data?.items.find((l) => l.unit_id === unitId && l.status === 'active');
+    return active?.tenants?.map((t) => t.tenant?.full_name).filter(Boolean).join(', ') || '—';
+  };
+  const rows = units.data?.items ?? [];
+  const occ = rows.filter((u) => u.status === 'occupied').length;
+  return (
+    <Modal title={`Ocupação — ${property.name}`} onClose={onClose} wide>
+      {units.isLoading ? <TableSkeleton cols={3} /> : !rows.length ? <Empty icon={<DoorClosed size={28} />} text="Nenhuma unidade." /> : (
+        <>
+          <p style={{ marginTop: 0, color: 'var(--pl-text-muted)' }}>{occ} de {rows.length} unidades ocupadas.</p>
+          <DataTable>
+            <thead><tr><th>Unidade</th><th>Status</th><th>Inquilino atual</th></tr></thead>
+            <tbody>
+              {rows.map((u) => (
+                <tr key={u.id}>
+                  <td style={{ fontWeight: 500 }}>{u.name}</td>
+                  <td><Status value={u.status} /></td>
+                  <td>{u.status === 'occupied' ? tenantFor(u.id) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+        </>
+      )}
+    </Modal>
   );
 }
 
@@ -599,12 +639,64 @@ function TenantForm({ tenant, onClose }: { tenant: Tenant | null; onClose: () =>
 
 /* ---------- Contratos ---------- */
 
+function Accordion({ title, count, defaultOpen, children }: { title: React.ReactNode; count?: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  return (
+    <div className="pl-accordion">
+      <button type="button" className="pl-accordion__head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <ChevronDown size={16} style={{ transform: open ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }} />
+        <span>{title}</span>
+        {count != null && <span className="pl-accordion__count">{count}</span>}
+      </button>
+      {open && <div className="pl-accordion__body">{children}</div>}
+    </div>
+  );
+}
+
+function LeaseTable({ leases, unitName, propName, showProperty, canWrite, onEdit, onAction }: {
+  leases: Lease[]; unitName: (id: number) => string; propName?: (lease: Lease) => string; showProperty?: boolean; canWrite: boolean;
+  onEdit: (l: Lease) => void; onAction: (l: Lease, kind: 'end' | 'cancel') => void;
+}) {
+  return (
+    <DataTable>
+      <thead><tr>{showProperty && <th>Imóvel</th>}<th>Unidade</th><th>Inquilinos</th><th>Início</th><th>Fim</th><th>Aluguel</th><th>Status</th>{canWrite && <th></th>}</tr></thead>
+      <tbody>
+        {leases.map((lease) => (
+          <tr key={lease.id}>
+            {showProperty && <td>{propName?.(lease) ?? '—'}</td>}
+            <td>{unitName(lease.unit_id)}</td>
+            <td>{lease.tenants?.map((x) => x.tenant?.full_name).filter(Boolean).join(', ') || '—'}</td>
+            <td>{brDate(lease.start_date)}</td>
+            <td>{brDate(lease.end_date)}</td>
+            <td style={{ fontWeight: 500 }}>{money(lease.monthly_rent)}</td>
+            <td><Status value={lease.status} /></td>
+            {canWrite && <td><RowActions>
+              <EditBtn onClick={() => onEdit(lease)} />
+              {lease.status !== 'ended' && lease.status !== 'cancelled' && (
+                <>
+                  <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => { if (confirmDelete('Encerrar este contrato hoje?')) onAction(lease, 'end'); }}>Encerrar</button>
+                  <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => { if (confirmDelete('Cancelar este contrato?')) onAction(lease, 'cancel'); }}>Cancelar</button>
+                </>
+              )}
+            </RowActions></td>}
+          </tr>
+        ))}
+      </tbody>
+    </DataTable>
+  );
+}
+
 function Leases() {
   const { canWrite } = useAuth();
   const leases = useQuery({ queryKey: ['leases'], queryFn: () => api<List<Lease>>('/leases') });
   const units = useQuery({ queryKey: ['units-all'], queryFn: () => api<List<Unit>>('/units?limit=500') });
+  const props = useQuery({ queryKey: ['properties'], queryFn: () => api<List<Property>>('/properties') });
   const [editing, setEditing] = useState<Lease | null | undefined>(undefined);
-  const unitName = (id: number) => units.data?.items.find((u) => u.id === id)?.name ?? `#${id}`;
+
+  const unitById = useMemo(() => new Map((units.data?.items ?? []).map((u) => [u.id, u])), [units.data]);
+  const propById = useMemo(() => new Map((props.data?.items ?? []).map((p) => [p.id, p])), [props.data]);
+  const unitName = (id: number) => unitById.get(id)?.name ?? `#${id}`;
+  const propForLease = (l: Lease) => { const u = unitById.get(l.unit_id); return u ? propById.get(u.property_id) : undefined; };
 
   const action = useMutation({
     mutationFn: ({ id, kind }: { id: number; kind: 'end' | 'cancel' }) => api<Lease>(`/leases/${id}/${kind}`, { method: 'POST' }),
@@ -617,8 +709,25 @@ function Leases() {
     onError: (e) => toast.error(errText(e)),
   });
 
+  const { condos, others } = useMemo(() => {
+    const condos = new Map<number, { prop: Property; leases: Lease[] }>();
+    const others: Lease[] = [];
+    for (const l of leases.data?.items ?? []) {
+      const p = propForLease(l);
+      // condomínios multi-unidade (by_unit) viram acordeão; os demais (inteiros) vêm sozinhos
+      if (p && p.rental_mode === 'by_unit') {
+        const g = condos.get(p.id) ?? { prop: p, leases: [] };
+        g.leases.push(l); condos.set(p.id, g);
+      } else { others.push(l); }
+    }
+    return { condos: [...condos.values()].sort((a, b) => a.prop.name.localeCompare(b.prop.name)), others };
+  }, [leases.data, unitById, propById]);
+
+  const onEdit = (l: Lease) => setEditing(l);
+  const onAction = (l: Lease, kind: 'end' | 'cancel') => action.mutate({ id: l.id, kind });
+
   return (
-    <Page title="Contratos" subtitle="Contratos de locação unidade ↔ inquilino, com status calculado."
+    <Page title="Contratos" subtitle="Contratos de locação unidade ↔ inquilino, agrupados por condomínio."
       action={canWrite && (
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="pl-btn pl-btn--ghost" onClick={() => gen.mutate()} disabled={gen.isPending}>Gerar cobranças</button>
@@ -631,30 +740,22 @@ function Leases() {
         <Empty icon={<FileText size={32} />} text="Nenhum contrato encontrado." detail="Associe uma unidade a um inquilino para gerar cobranças mensais." />
       )}
       {!leases.isLoading && !!leases.data?.items?.length && (
-        <DataTable>
-          <thead><tr><th>Unidade</th><th>Inquilinos</th><th>Início</th><th>Fim</th><th>Aluguel</th><th>Status</th>{canWrite && <th></th>}</tr></thead>
-          <tbody>
-            {leases.data!.items.map((lease) => (
-              <tr key={lease.id}>
-                <td>{unitName(lease.unit_id)}</td>
-                <td>{lease.tenants?.map((x) => x.tenant?.full_name).filter(Boolean).join(', ') || '—'}</td>
-                <td>{brDate(lease.start_date)}</td>
-                <td>{brDate(lease.end_date)}</td>
-                <td style={{ fontWeight: 500 }}>{money(lease.monthly_rent)}</td>
-                <td><Status value={lease.status} /></td>
-                {canWrite && <td><RowActions>
-                  <EditBtn onClick={() => setEditing(lease)} />
-                  {lease.status !== 'ended' && lease.status !== 'cancelled' && (
-                    <>
-                      <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => { if (confirmDelete('Encerrar este contrato hoje?')) action.mutate({ id: lease.id, kind: 'end' }); }}>Encerrar</button>
-                      <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => { if (confirmDelete('Cancelar este contrato?')) action.mutate({ id: lease.id, kind: 'cancel' }); }}>Cancelar</button>
-                    </>
-                  )}
-                </RowActions></td>}
-              </tr>
-            ))}
-          </tbody>
-        </DataTable>
+        <>
+          {condos.map((g) => {
+            const ativos = g.leases.filter((l) => l.status === 'active').length;
+            return (
+              <Accordion key={g.prop.id} title={g.prop.name} count={`${ativos} ativo(s) · ${g.leases.length} contrato(s)`}>
+                <LeaseTable leases={g.leases} unitName={unitName} canWrite={canWrite} onEdit={onEdit} onAction={onAction} />
+              </Accordion>
+            );
+          })}
+          {!!others.length && (
+            <div style={{ marginTop: condos.length ? 24 : 0 }}>
+              <h3 className="pl-h3" style={{ margin: '0 0 12px' }}>Outros imóveis</h3>
+              <LeaseTable leases={others} unitName={unitName} showProperty propName={(l) => propForLease(l)?.name ?? '—'} canWrite={canWrite} onEdit={onEdit} onAction={onAction} />
+            </div>
+          )}
+        </>
       )}
       {editing !== undefined && <LeaseForm lease={editing} onClose={() => setEditing(undefined)} />}
     </Page>
@@ -1166,6 +1267,229 @@ function UserForm({ onClose }: { onClose: () => void }) {
           <Field label="Senha" full><input className="pl-input" type="password" value={f.password} onChange={set('password')} required minLength={6} autoComplete="new-password" /></Field>
         </div>
         <FormFoot onCancel={onClose} pending={save.isPending} submitLabel="Criar usuário" />
+      </form>
+    </Modal>
+  );
+}
+
+/* ---------- Conciliação (por aluguel) ---------- */
+
+const MIN_MONTH = '2026-04';
+
+function Conciliacao() {
+  const { canWrite } = useAuth();
+  const [month, setMonth] = useState(MIN_MONTH);
+  const data = useQuery({ queryKey: ['recon-charges', month], queryFn: () => api<ReconChargesResp>(`/reconciliation/charges?month=${month}`) });
+  const [pickFor, setPickFor] = useState<ReconChargeRow | null>(null);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['recon-charges', month] });
+    qc.invalidateQueries({ queryKey: ['bank-txns', month] });
+    qc.invalidateQueries({ queryKey: ['inadimplencia'] });
+  };
+  const act = useMutation({
+    mutationFn: ({ txnId, path, payload }: { txnId: number; path: string; payload?: any }) => api<any>(`/bank/transactions/${txnId}/${path}`, { method: 'POST', body: payload ? JSON.stringify(payload) : undefined }),
+    onSuccess: () => { refresh(); },
+    onError: (e) => toast.error(errText(e)),
+  });
+  const ligar = (chargeId: number, txnId: number) => act.mutate({ txnId, path: 'match', payload: { rent_charge_id: chargeId } });
+
+  const rows = data.data?.items ?? [];
+  return (
+    <Page title="Conciliação de aluguéis" subtitle="Cada aluguel previsto do mês e a ligação com o lançamento recebido no extrato.">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <span className="pl-label">Mês</span>
+        <input className="pl-input" type="month" min={MIN_MONTH} value={month} onChange={(e) => setMonth(e.target.value < MIN_MONTH ? MIN_MONTH : e.target.value)} style={{ width: 180 }} />
+      </div>
+      <div className="pl-dashboard-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0,1fr))' }}>
+        <KpiCard label="Esperado" value={money(data.data?.esperado)} loading={data.isLoading} />
+        <KpiCard label="Recebido (conciliado)" value={money(data.data?.recebido)} loading={data.isLoading} />
+        <KpiCard label="Em aberto" value={money(data.data?.em_aberto)} loading={data.isLoading} />
+      </div>
+      {data.isLoading ? <TableSkeleton cols={6} /> : !rows.length ? <Empty icon={<ArrowLeftRight size={32} />} text="Nenhum aluguel previsto neste mês." detail="Gere as cobranças em Contratos." /> : (
+        <DataTable>
+          <thead><tr><th>Contrato</th><th>Vencimento</th><th>Esperado</th><th>Status</th><th>Extrato</th>{canWrite && <th></th>}</tr></thead>
+          <tbody>
+            {rows.map((r) => {
+              const lk = r.linked_txn; const sg = r.suggested_txn;
+              return (
+                <tr key={r.charge.id}>
+                  <td><div style={{ fontWeight: 500 }}>{r.property} · {r.unit}</div><div style={{ fontSize: 12, color: 'var(--pl-stone-500)' }}>{r.tenants || '—'}</div></td>
+                  <td>{brDate(r.charge.due_date)}</td>
+                  <td style={{ fontWeight: 500 }}>{money(r.charge.amount_due)}</td>
+                  <td><Status value={r.charge.status} /></td>
+                  <td>
+                    {lk
+                      ? <span>{brDate(lk.posted_date)} · {money(lk.amount)} · {lk.counterparty_name ?? lk.memo}</span>
+                      : sg
+                        ? <span>→ {sg.counterparty_name ?? sg.memo} · {money(sg.amount)}{r.confidence && <span className="pl-status pl-status--neutral" style={{ marginLeft: 6 }}>{r.confidence}</span>}</span>
+                        : <span style={{ color: 'var(--pl-stone-500)' }}>sem sugestão</span>}
+                  </td>
+                  {canWrite && <td><RowActions>
+                    {lk && <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => act.mutate({ txnId: lk.id, path: 'unmatch' })}>Desligar</button>}
+                    {!lk && sg && <button type="button" className="pl-btn pl-btn--primary pl-btn--sm" onClick={() => ligar(r.charge.id, sg.id)}><Link2 size={14} /> Ligar</button>}
+                    {!lk && <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => setPickFor(r)}>Escolher…</button>}
+                  </RowActions></td>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </DataTable>
+      )}
+      {pickFor && <TxnPicker charge={pickFor} month={month} onClose={() => setPickFor(null)} onPick={(txnId) => { ligar(pickFor.charge.id, txnId); setPickFor(null); }} />}
+    </Page>
+  );
+}
+
+function TxnPicker({ charge, month, onClose, onPick }: { charge: ReconChargeRow; month: string; onClose: () => void; onPick: (txnId: number) => void }) {
+  const txns = useQuery({ queryKey: ['bank-credits-pending', month], queryFn: () => api<List<BankTxn>>(`/bank/transactions?month=${month}&kind=credit&status=pending`) });
+  const rows = txns.data?.items ?? [];
+  return (
+    <Modal title={`Ligar aluguel de ${money(charge.charge.amount_due)} — ${charge.tenants}`} onClose={onClose} wide>
+      {txns.isLoading ? <TableSkeleton cols={4} /> : !rows.length ? <Empty text="Nenhum crédito pendente neste mês." /> : (
+        <DataTable>
+          <thead><tr><th>Data</th><th>Pagador</th><th>Valor</th><th></th></tr></thead>
+          <tbody>
+            {rows.map((t) => (
+              <tr key={t.id}>
+                <td>{brDate(t.posted_date)}</td>
+                <td><div style={{ fontWeight: 500 }}>{t.counterparty_name ?? t.memo}</div>{t.counterparty_doc && <div className="pl-mono" style={{ fontSize: 12, color: 'var(--pl-stone-500)' }}>{t.counterparty_doc}</div>}</td>
+                <td style={{ fontWeight: 500 }}>{money(t.amount)}</td>
+                <td><button type="button" className="pl-btn pl-btn--primary pl-btn--sm" onClick={() => onPick(t.id)}>Ligar</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      )}
+    </Modal>
+  );
+}
+
+/* ---------- Extrato (visão do extrato bancário) ---------- */
+
+function Extrato() {
+  const { canWrite } = useAuth();
+  const [month, setMonth] = useState(MIN_MONTH);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const summary = useQuery({ queryKey: ['recon-summary', month], queryFn: () => api<ReconSummary>(`/reconciliation/summary?month=${month}`) });
+  const txns = useQuery({ queryKey: ['bank-txns', month], queryFn: () => api<List<BankTxn>>(`/bank/transactions?month=${month}`) });
+  const [expenseFor, setExpenseFor] = useState<BankTxn | null>(null);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['recon-summary', month] });
+    qc.invalidateQueries({ queryKey: ['bank-txns', month] });
+    qc.invalidateQueries({ queryKey: ['recon-charges', month] });
+    qc.invalidateQueries({ queryKey: ['expenses'] });
+  };
+  const upload = useMutation({
+    mutationFn: (files: FileList) => { const fd = new FormData(); Array.from(files).forEach((f) => fd.append('files', f)); return api<any>('/bank/import', { method: 'POST', body: fd }); },
+    onSuccess: (r) => { refresh(); toast.success(`Importado: ${r.created} novo(s), ${r.duplicated} já existiam`); if (fileRef.current) fileRef.current.value = ''; },
+    onError: (e) => toast.error(errText(e)),
+  });
+  const act = useMutation({
+    mutationFn: ({ id, path, body }: { id: number; path: string; body?: any }) => api<any>(`/bank/transactions/${id}/${path}`, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
+    onSuccess: () => { refresh(); },
+    onError: (e) => toast.error(errText(e)),
+  });
+
+  const items = txns.data?.items ?? [];
+  const credits = items.filter((t) => t.kind === 'credit');
+  const debits = items.filter((t) => t.kind === 'debit');
+
+  return (
+    <Page title="Extrato bancário" subtitle="Lançamentos importados do extrato (PIX). A ligação de aluguéis fica em Conciliação."
+      action={canWrite && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input ref={fileRef} type="file" accept=".pdf,.ofx,.ofc,.txt" multiple style={{ display: 'none' }} onChange={(e) => { if (e.target.files?.length) upload.mutate(e.target.files); }} />
+          <button className="pl-btn pl-btn--primary" disabled={upload.isPending} onClick={() => fileRef.current?.click()}>
+            <Upload size={16} /> {upload.isPending ? 'Importando…' : 'Importar extrato'}
+          </button>
+        </div>
+      )}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <span className="pl-label">Mês</span>
+        <input className="pl-input" type="month" min={MIN_MONTH} value={month} onChange={(e) => setMonth(e.target.value < MIN_MONTH ? MIN_MONTH : e.target.value)} style={{ width: 180 }} />
+      </div>
+      <div className="pl-dashboard-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0,1fr))' }}>
+        <KpiCard label="Recebido" value={money(summary.data?.recebido)} loading={summary.isLoading} />
+        <KpiCard label="Conciliado" value={money(summary.data?.conciliado)} loading={summary.isLoading} />
+        <KpiCard label="Não conciliado" value={money(summary.data?.nao_conciliado)} loading={summary.isLoading} />
+      </div>
+
+      <h3 className="pl-h3" style={{ margin: '8px 0 12px' }}>Créditos (aluguéis recebidos)</h3>
+      <ExtratoTable rows={credits} kind="credit" loading={txns.isLoading} canWrite={canWrite}
+        onConfirm={() => {}} onIgnore={(t) => act.mutate({ id: t.id, path: 'ignore' })}
+        onUndo={(t) => act.mutate({ id: t.id, path: 'unmatch' })} onCreateExpense={() => {}} />
+
+      <h3 className="pl-h3" style={{ margin: '24px 0 12px' }}>Débitos (despesas)</h3>
+      <ExtratoTable rows={debits} kind="debit" loading={txns.isLoading} canWrite={canWrite}
+        onConfirm={(t) => act.mutate({ id: t.id, path: 'match', body: { expense_id: t.suggestion?.expense?.id } })}
+        onIgnore={(t) => act.mutate({ id: t.id, path: 'ignore' })}
+        onUndo={(t) => act.mutate({ id: t.id, path: 'unmatch' })} onCreateExpense={(t) => setExpenseFor(t)} />
+
+      {expenseFor && <CreateExpenseModal txn={expenseFor} onClose={() => setExpenseFor(null)} onCreate={(body) => { act.mutate({ id: expenseFor.id, path: 'create-expense', body }); setExpenseFor(null); }} />}
+    </Page>
+  );
+}
+
+function reconStatusLabel(s: string) { return s === 'reconciled' ? 'Conciliado' : s === 'ignored' ? 'Ignorado' : 'Pendente'; }
+
+function ExtratoTable({ rows, kind, loading, canWrite, onConfirm, onIgnore, onUndo, onCreateExpense }: {
+  rows: BankTxn[]; kind: 'credit' | 'debit'; loading: boolean; canWrite: boolean;
+  onConfirm: (t: BankTxn) => void; onIgnore: (t: BankTxn) => void; onUndo: (t: BankTxn) => void; onCreateExpense: (t: BankTxn) => void;
+}) {
+  if (loading) return <TableSkeleton cols={5} />;
+  if (!rows.length) return <Empty text="Nenhum lançamento neste mês." detail="Importe o extrato (PDF/OFX) para ver os lançamentos." />;
+  return (
+    <DataTable>
+      <thead><tr><th>Data</th><th>Contraparte</th><th>Valor</th><th>Status</th>{kind === 'debit' && <th>Despesa</th>}{canWrite && <th></th>}</tr></thead>
+      <tbody>
+        {rows.map((t) => {
+          const s = t.suggestion;
+          return (
+            <tr key={t.id}>
+              <td>{brDate(t.posted_date)}</td>
+              <td><div style={{ fontWeight: 500 }}>{t.counterparty_name ?? t.memo ?? '—'}</div>{t.counterparty_doc && <div className="pl-mono" style={{ fontSize: 12, color: 'var(--pl-stone-500)' }}>{t.counterparty_doc}</div>}</td>
+              <td style={{ fontWeight: 500, color: kind === 'debit' ? 'var(--pl-danger)' : undefined }}>{money(t.amount)}</td>
+              <td><span className={`pl-status pl-status--${t.status === 'reconciled' ? 'paid' : t.status === 'ignored' ? 'cancelled' : 'pending'}`}>{reconStatusLabel(t.status)}</span></td>
+              {kind === 'debit' && <td>{t.status === 'pending' ? (s?.expense ? `→ despesa ${money(s.expense.amount)}` : 'criar despesa') : '—'}</td>}
+              {canWrite && <td><RowActions>
+                {t.status === 'pending' && kind === 'debit' && s?.expense && <button type="button" className="pl-btn pl-btn--primary pl-btn--sm" onClick={() => onConfirm(t)}><Check size={14} /> Confirmar</button>}
+                {t.status === 'pending' && kind === 'debit' && <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => onCreateExpense(t)}>Criar despesa</button>}
+                {t.status === 'pending' && <button type="button" className="pl-icon-btn" title="Ignorar" onClick={() => onIgnore(t)}><Ban size={15} /></button>}
+                {t.status !== 'pending' && <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => onUndo(t)}>Desfazer</button>}
+              </RowActions></td>}
+            </tr>
+          );
+        })}
+      </tbody>
+    </DataTable>
+  );
+}
+
+function CreateExpenseModal({ txn, onClose, onCreate }: { txn: BankTxn; onClose: () => void; onCreate: (body: any) => void }) {
+  const props = useQuery({ queryKey: ['properties'], queryFn: () => api<List<Property>>('/properties') });
+  const guess = /LUZ/i.test(txn.memo ?? '') ? 'energia' : 'outros';
+  const [category, setCategory] = useState(txn.suggestion?.suggested_category ?? guess);
+  const [propertyId, setPropertyId] = useState('');
+  return (
+    <Modal title={`Criar despesa de ${money(txn.amount)}`} onClose={onClose}>
+      <form onSubmit={(e) => { e.preventDefault(); onCreate({ category, property_id: propertyId ? Number(propertyId) : null }); }}>
+        <p style={{ color: 'var(--pl-text-muted)', marginTop: 0 }}>{txn.counterparty_name ?? txn.memo} · {brDate(txn.posted_date)}</p>
+        <div className="pl-form-grid">
+          <Field label="Categoria">
+            <select className="pl-input" value={category} onChange={(e) => setCategory(e.target.value)}>
+              {['iptu', 'energia', 'agua', 'emprestimo', 'outros'].map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+            </select>
+          </Field>
+          <Field label="Imóvel (opcional)">
+            <select className="pl-input" value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+              <option value="">Nenhum</option>
+              {props.data?.items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </Field>
+        </div>
+        <FormFoot onCancel={onClose} submitLabel="Criar e conciliar" />
       </form>
     </Modal>
   );

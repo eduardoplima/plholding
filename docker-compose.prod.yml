@@ -1,0 +1,54 @@
+# Stack de produção: Postgres (Docker) + API (FastAPI) + Caddy (HTTPS + estático).
+# Documentos e dados do Postgres ficam em PASTAS DA MÁQUINA (bind mounts em DATA_DIR).
+# Configure os segredos em .env (veja .env.prod.example). Subir:
+#   docker compose -f docker-compose.prod.yml up -d --build
+services:
+  db:
+    image: postgres:16
+    container_name: plholding-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: plholding
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: plholding
+    volumes:
+      - ${DATA_DIR:-./.prod-data}/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plholding"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://plholding:${POSTGRES_PASSWORD}@db:5432/plholding
+      LOCAL_STORAGE_DIR: /data/storage
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-eduardo}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?defina ADMIN_PASSWORD no .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    volumes:
+      - ${DATA_DIR:-./.prod-data}/storage:/data/storage
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-app.holdingpl.com.br}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  caddy_data:
+  caddy_config:

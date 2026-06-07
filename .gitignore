@@ -49,3 +49,10 @@ backups/
 .playwright-mcp/
 dashboard.png
 .claude/settings.local.json
+
+# Dados do smoke-test prod local
+.prod-data/
+
+# Dados sensíveis (não versionar): documentos reais e extratos bancários
+docs/
+extratos/

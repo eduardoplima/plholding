@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
 
 STORAGE_DIR="${LOCAL_STORAGE_DIR:-$BACKEND_DIR/storage}"
-DB_CONTAINER="${DB_CONTAINER:-plholding-db-1}"
+DB_CONTAINER="${DB_CONTAINER:-plholding-db}"
 PG_USER="${POSTGRES_USER:-plholding}"
 PG_DB="${POSTGRES_DB:-plholding}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-gdrive:plholding-backups}"

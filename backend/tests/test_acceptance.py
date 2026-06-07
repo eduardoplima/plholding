@@ -72,3 +72,83 @@ def test_loan_generates_installment_expenses():
     assert all(e['category'] == 'emprestimo' and e['debt_id'] == did for e in exps)
     again = client.post(f'/debts/{did}/generate-installments', headers=h).json()
     assert again['created'] == 0
+
+
+OFX_SAMPLE = (
+    '<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>'
+    '<STMTTRN><TRNTYPE>CREDIT</TRNTYPE><DTPOSTED>20260410120000</DTPOSTED>'
+    '<TRNAMT>1234.00</TRNAMT><FITID>TST-RECON-1</FITID><MEMO>CRE PIX CH</MEMO></STMTTRN>'
+    '</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>'
+)
+
+
+def test_reconciliation_name_match_and_payment():
+    client = TestClient(app)
+    h = auth_headers(client)
+    import time
+    cpf = '70097969478'
+    pid = client.post('/properties', json={'name': f'Cond Recon {time.time()}', 'kind': 'condominio', 'rental_mode': 'by_unit'}, headers=h).json()['id']
+    uid = client.post(f'/properties/{pid}/units', json={'name': 'Unidade 01', 'base_rent': '1234.00'}, headers=h).json()['id']
+    tid = client.post('/tenants', json={'full_name': 'João Vitor de Oliveira Alves', 'cpf': cpf}, headers=h).json()['id']
+    client.post('/leases', json={'unit_id': uid, 'start_date': '2026-01-01', 'end_date': '2026-12-31', 'monthly_rent': '1234.00', 'due_day': 10, 'tenants': [{'tenant_id': tid, 'is_primary': True}]}, headers=h)
+    client.post('/rent-charges/generate?up_to_month=2026-04', headers=h)
+
+    # casamento por nome + CPF mascarado
+    from app.main import SessionLocal, match_tenant
+    db = SessionLocal()
+    try:
+        t, conf = match_tenant(db, 'JOAO VITOR DE OLIVEIRA ALVES', '***.979.694-**')
+        assert t is not None and t.id == tid and conf == 'alta'
+    finally:
+        db.close()
+
+    # import idempotente
+    r = client.post('/bank/import', files=[('files', ('abril.ofx', OFX_SAMPLE, 'application/octet-stream'))], headers=h)
+    assert r.status_code == 200 and r.json()['created'] >= 1, r.text
+    again = client.post('/bank/import', files=[('files', ('abril.ofx', OFX_SAMPLE, 'application/octet-stream'))], headers=h)
+    assert again.json()['created'] == 0 and again.json()['duplicated'] >= 1
+
+    txn = [t for t in client.get('/bank/transactions?month=2026-04&kind=credit', headers=h).json()['items'] if t['fitid'] == 'TST-RECON-1'][0]
+    charge = client.get(f'/rent-charges?lease_id={client.get("/leases", headers=h).json()["items"][-1]["id"]}', headers=h).json()['items'][0]
+    m = client.post(f"/bank/transactions/{txn['id']}/match", json={'rent_charge_id': charge['id']}, headers=h)
+    assert m.status_code == 200 and m.json()['status'] == 'reconciled', m.text
+    assert client.get(f"/rent-charges/{charge['id']}", headers=h).json()['status'] == 'paid'
+
+    # desfazer reverte o pagamento
+    client.post(f"/bank/transactions/{txn['id']}/unmatch", headers=h)
+    assert client.get(f"/rent-charges/{charge['id']}", headers=h).json()['status'] in ('pending', 'overdue')
+
+
+def test_reconciliation_charges_view():
+    client = TestClient(app)
+    h = auth_headers(client)
+    import time
+    pname = f'Cond Charges {time.time()}'
+    pid = client.post('/properties', json={'name': pname, 'kind': 'condominio', 'rental_mode': 'by_unit'}, headers=h).json()['id']
+    uid = client.post(f'/properties/{pid}/units', json={'name': 'Unidade 01', 'base_rent': '1100.00'}, headers=h).json()['id']
+    tid = client.post('/tenants', json={'full_name': 'Joaquim Vitorino Teste', 'cpf': '11122233344'}, headers=h).json()['id']
+    client.post('/leases', json={'unit_id': uid, 'start_date': '2026-01-01', 'end_date': '2026-12-31', 'monthly_rent': '1100.00', 'due_day': 10, 'tenants': [{'tenant_id': tid, 'is_primary': True}]}, headers=h)
+    client.post('/rent-charges/generate?up_to_month=2026-04', headers=h)
+
+    # insere um crédito do extrato com o NOME do pagador (como vem do PDF)
+    from datetime import date as _date
+    from decimal import Decimal as _D
+    from app.main import BankTransaction, SessionLocal, TxnKind
+    db = SessionLocal()
+    try:
+        db.add(BankTransaction(account_id='caixa', fitid='CHG-VIEW-1', posted_date=_date(2026, 4, 6), kind=TxnKind.credit, amount=_D('1262.00'), counterparty_name='JOAQUIM VITORINO TESTE', counterparty_doc='***.222.333-**', memo='CRE PIX CH'))
+        db.commit()
+    finally:
+        db.close()
+
+    data = client.get('/reconciliation/charges?month=2026-04', headers=h).json()
+    row = [r for r in data['items'] if r['property'] == pname][0]
+    assert row['suggested_txn'] and row['suggested_txn']['fitid'] == 'CHG-VIEW-1'
+    assert row['confidence'] in ('alta', 'media')
+
+    # ligar (match) a partir da visão de cobrança
+    m = client.post(f"/bank/transactions/{row['suggested_txn']['id']}/match", json={'rent_charge_id': row['charge']['id']}, headers=h)
+    assert m.status_code == 200 and m.json()['status'] == 'reconciled', m.text
+    after = client.get('/reconciliation/charges?month=2026-04', headers=h).json()
+    row2 = [r for r in after['items'] if r['charge']['id'] == row['charge']['id']][0]
+    assert row2['charge']['status'] == 'paid' and row2['linked_txn'] and row2['suggested_txn'] is None

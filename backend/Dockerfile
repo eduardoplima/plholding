@@ -1,7 +1,17 @@
 FROM python:3.11-slim
+
 WORKDIR /app
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
+
 RUN pip install uv
+
+# dependências primeiro (cache de camada)
 COPY pyproject.toml ./
-RUN uv pip install --system -e .
+RUN uv pip install --system .
+
+# código da aplicação
 COPY . .
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+RUN chmod +x entrypoint.sh
+
+EXPOSE 8000
+CMD ["./entrypoint.sh"]

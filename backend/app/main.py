@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import enum
 import os
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -35,6 +36,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
+from app.statements import parse_statement
+
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./plholding.db')
 JWT_SECRET = os.getenv('JWT_SECRET', 'dev-secret-change-me')
 JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'HS256')
@@ -60,6 +63,8 @@ class ExpenseStatus(str, enum.Enum): pending='pending'; paid='paid'; overdue='ov
 class DebtKind(str, enum.Enum): consignado='consignado'; financiamento='financiamento'; outro='outro'
 class DocumentType(str, enum.Enum): comprovante_pagamento='comprovante_pagamento'; comprovante_imposto='comprovante_imposto'; contrato='contrato'; outro='outro'
 class OwnerEntityType(str, enum.Enum): rent_charge='rent_charge'; expense='expense'; lease='lease'; property='property'; debt='debt'
+class TxnKind(str, enum.Enum): credit='credit'; debit='debit'
+class ReconStatus(str, enum.Enum): pending='pending'; reconciled='reconciled'; ignored='ignored'
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -198,6 +203,25 @@ class Document(Base):
     uploaded_by: Mapped[int]=mapped_column(ForeignKey('users.id', ondelete='RESTRICT'))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+class BankTransaction(Base):
+    __tablename__='bank_transactions'
+    __table_args__=(UniqueConstraint('account_id','fitid', name='uq_bank_acct_fitid'),)
+    id: Mapped[int]=mapped_column(primary_key=True)
+    account_id: Mapped[str]=mapped_column(String(40), index=True)
+    fitid: Mapped[str]=mapped_column(String(120), index=True)
+    posted_date: Mapped[date]=mapped_column(Date, index=True)
+    kind: Mapped[TxnKind]=mapped_column(Enum(TxnKind), index=True)
+    amount: Mapped[Decimal]=mapped_column(Numeric(12,2))
+    counterparty_name: Mapped[Optional[str]]=mapped_column(String(255), nullable=True)
+    counterparty_doc: Mapped[Optional[str]]=mapped_column(String(40), nullable=True)
+    memo: Mapped[Optional[str]]=mapped_column(String(255), nullable=True)
+    status: Mapped[ReconStatus]=mapped_column(Enum(ReconStatus), default=ReconStatus.pending, index=True)
+    rent_charge_id: Mapped[Optional[int]]=mapped_column(ForeignKey('rent_charges.id', ondelete='SET NULL'), nullable=True)
+    expense_id: Mapped[Optional[int]]=mapped_column(ForeignKey('expenses.id', ondelete='SET NULL'), nullable=True)
+    tenant_id: Mapped[Optional[int]]=mapped_column(ForeignKey('tenants.id', ondelete='SET NULL'), nullable=True)
+    notes: Mapped[Optional[str]]=mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
 # passlib's bcrypt backend can be brittle across bcrypt releases; pbkdf2_sha256 is used here
 # as a deterministic, salted password hasher for the local app/test environment.
 pwd_context = CryptContext(schemes=['pbkdf2_sha256'], deprecated='auto')
@@ -256,6 +280,8 @@ class LeaseIn(BaseModel):
 class PaymentIn(BaseModel): amount_paid:Decimal; paid_date:date; document_id:Optional[int]=None
 class ExpenseIn(BaseModel): category:ExpenseCategory; reference_period:date; amount:Decimal; due_date:Optional[date]=None; debt_id:Optional[int]=None; notes:Optional[str]=None
 class DebtIn(BaseModel): name:str; kind:DebtKind; principal_amount:Decimal; installment_amount:Optional[Decimal]=None; installments_count:Optional[int]=Field(default=None, ge=1); first_due_date:Optional[date]=None; outstanding_balance:Decimal; property_id:Optional[int]=None; start_date:Optional[date]=None; notes:Optional[str]=None
+class MatchIn(BaseModel): rent_charge_id:Optional[int]=None; expense_id:Optional[int]=None
+class TxnExpenseIn(BaseModel): category:ExpenseCategory; property_id:Optional[int]=None; reference_period:Optional[date]=None
 
 # serializers
 def money(v): return str(Decimal(v or 0).quantize(Decimal('0.01')))
@@ -268,6 +294,7 @@ def charge_out(c:RentCharge): return {'id':c.id,'lease_id':c.lease_id,'reference
 def expense_out(e:Expense): return {'id':e.id,'property_id':e.property_id,'debt_id':e.debt_id,'category':e.category.value,'reference_period':e.reference_period.isoformat(),'amount':money(e.amount),'due_date':e.due_date.isoformat() if e.due_date else None,'paid_date':e.paid_date.isoformat() if e.paid_date else None,'status':e.status.value,'notes':e.notes}
 def debt_out(d:Debt): return {'id':d.id,'name':d.name,'kind':d.kind.value,'principal_amount':money(d.principal_amount),'installment_amount':money(d.installment_amount) if d.installment_amount is not None else None,'installments_count':d.installments_count,'first_due_date':d.first_due_date.isoformat() if d.first_due_date else None,'outstanding_balance':money(d.outstanding_balance),'property_id':d.property_id,'start_date':d.start_date.isoformat() if d.start_date else None,'notes':d.notes}
 def doc_out(d:Document): return {'id':d.id,'storage_key':d.storage_key,'original_filename':d.original_filename,'content_type':d.content_type,'size_bytes':d.size_bytes,'document_type':d.document_type.value,'owner_entity_type':d.owner_entity_type.value,'owner_entity_id':d.owner_entity_id,'uploaded_by':d.uploaded_by}
+def bank_txn_out(t:BankTransaction): return {'id':t.id,'account_id':t.account_id,'fitid':t.fitid,'posted_date':t.posted_date.isoformat(),'kind':t.kind.value,'amount':money(t.amount),'counterparty_name':t.counterparty_name,'counterparty_doc':t.counterparty_doc,'memo':t.memo,'status':t.status.value,'rent_charge_id':t.rent_charge_id,'expense_id':t.expense_id,'tenant_id':t.tenant_id,'notes':t.notes}
 
 def add_months(d:date, months:int)->date:
     y=d.year+(d.month-1+months)//12; m=(d.month-1+months)%12+1
@@ -299,6 +326,50 @@ def recompute_units(db:Session):
     for u in units:
         u.status = UnitStatus.occupied if any(l.status==LeaseStatus.active for l in u.leases) else UnitStatus.vacant
 
+# ---------- conciliação: casamento por nome ----------
+import unicodedata as _ud
+_STOP={'de','da','do','dos','das','e','di','ltda','ltd','me','epp','eireli','servicos','serviços','saude','performance'}
+def _tokens(s:str)->list[str]:
+    s=_ud.normalize('NFKD', s or '').encode('ascii','ignore').decode().lower()
+    return [w for w in re.findall(r'[a-z]+', s) if len(w)>2 and w not in _STOP]
+def _cpf_digits(s:str)->str: return re.sub(r'\D','', s or '')
+def _cpf_mid_match(doc:str|None, cpf:str|None)->bool:
+    mid=re.search(r'\*{3}\.?(\d{3})\.?(\d{3})-?\*{2}', doc or '')
+    cd=_cpf_digits(cpf or '')
+    return bool(mid and len(cd)>=9 and cd[3:9]==mid.group(1)+mid.group(2))
+def match_tenant(db:Session, name:str, doc:str|None, amount:Decimal|None=None)->tuple[Optional[Tenant],str]:
+    """Casa contraparte -> Tenant. Precisão: CPF, ou >=2 tokens, ou nome curto com
+    primeiro-nome igual. Desempate pelo valor (aluguel do contrato ativo)."""
+    bt=_tokens(name)
+    if not bt: return None, 'none'
+    bset=set(bt); cands=[]
+    for t in db.scalars(select(Tenant)).all():
+        tt=_tokens(t.full_name)
+        if not tt: continue
+        shared=bset & set(tt)
+        if not shared: continue
+        cpf_ok=_cpf_mid_match(doc, t.cpf)
+        first_ok=bt[0] in shared and tt[0] in shared  # mesmo primeiro nome
+        eligible = cpf_ok or len(shared)>=2 or (len(shared)==1 and first_ok and (len(tt)<=2 or len(bt)<=2))
+        if not eligible: continue
+        rent_ok = amount is not None and any(l.status==LeaseStatus.active and l.monthly_rent==amount for lk in t.lease_links for l in [lk.lease])
+        cands.append((cpf_ok, len(shared), rent_ok, t))
+    if not cands: return None, 'none'
+    cpf_ok, _s, _r, best = max(cands, key=lambda c:(c[0], c[2], c[1]))
+    return best, ('alta' if cpf_ok else 'media')
+def suggest_for_txn(db:Session, t:BankTransaction)->dict:
+    """Sugestão (não aplica nada). credit->cobrança via inquilino; debit->despesa por valor+mês."""
+    if t.kind==TxnKind.credit:
+        tenant,conf=match_tenant(db, t.counterparty_name or '', t.counterparty_doc, t.amount)
+        if not tenant: return {'kind':'none'}
+        mref=date(t.posted_date.year, t.posted_date.month, 1)
+        charge=db.scalar(select(RentCharge).join(Lease).join(LeaseTenant).where(LeaseTenant.tenant_id==tenant.id, RentCharge.reference_month==mref, RentCharge.status!=ChargeStatus.paid).order_by(RentCharge.id))
+        return {'kind':'rent_charge','confidence':conf,'tenant':tenant_out(tenant),'rent_charge':charge_out(charge) if charge else None}
+    mref=date(t.posted_date.year, t.posted_date.month, 1)
+    exp=db.scalar(select(Expense).where(Expense.amount==t.amount, Expense.reference_period==mref, Expense.status!=ExpenseStatus.paid).order_by(Expense.id))
+    cat=ExpenseCategory.energia if 'LUZ' in (t.memo or '').upper() else ExpenseCategory.outros
+    return {'kind':'expense','expense':expense_out(exp) if exp else None,'suggested_category':cat.value}
+
 def seed_admin():
     Base.metadata.create_all(engine)
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -312,7 +383,9 @@ def seed_admin():
     finally: db.close()
 
 app=FastAPI(title='P&L Holding API', version='0.1.0')
-app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
+# Em prod (mesma origem via Caddy) defina CORS_ORIGINS=https://app.holdingpl.com.br; default '*' p/ dev.
+_cors=[o.strip() for o in os.getenv('CORS_ORIGINS','*').split(',') if o.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=_cors, allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
 if not os.getenv('SKIP_SEED'): seed_admin()
 
 @app.get('/health')
@@ -648,6 +721,117 @@ def delete_doc(id:int, db:Session=Depends(get_db), _:User=Depends(require_roles(
     try: (STORAGE_DIR/d.storage_key).unlink(missing_ok=True)
     except Exception: pass
     db.delete(d); db.commit()
+
+# ---------- Conciliação bancária ----------
+BANK_ACCOUNT='caixa-5736295241'
+@app.post('/bank/import')
+def bank_import(files:list[UploadFile]=File(...), db:Session=Depends(get_db), _:User=Depends(require_roles(UserRole.admin,UserRole.manager))):
+    created=0; duplicated=0; total=0
+    for f in files:
+        content=f.file.read()
+        try: txns=parse_statement(f.filename or '', content)
+        except Exception as e: raise HTTPException(422, f'Falha ao ler {f.filename}: {e}')
+        for tx in txns:
+            if not tx.get('posted_date'): continue
+            total+=1
+            if db.scalar(select(BankTransaction).where(BankTransaction.account_id==BANK_ACCOUNT, BankTransaction.fitid==tx['fitid'])):
+                duplicated+=1; continue
+            db.add(BankTransaction(account_id=BANK_ACCOUNT, fitid=tx['fitid'], posted_date=tx['posted_date'], kind=TxnKind(tx['kind']), amount=tx['amount'], counterparty_name=tx['counterparty_name'], counterparty_doc=tx['counterparty_doc'], memo=tx['memo']))
+            created+=1
+    db.commit(); return {'created':created,'duplicated':duplicated,'total':total}
+@app.get('/bank/transactions')
+def list_bank_txns(month:Optional[str]=None, kind:Optional[TxnKind]=None, status_:Optional[ReconStatus]=Query(None, alias='status'), db:Session=Depends(get_db), _:User=Depends(get_current_user)):
+    stmt=select(BankTransaction)
+    if month: d=parse_ym(month); stmt=stmt.where(BankTransaction.posted_date>=d, BankTransaction.posted_date<add_months(d,1))
+    if kind: stmt=stmt.where(BankTransaction.kind==kind)
+    if status_: stmt=stmt.where(BankTransaction.status==status_)
+    items=[]
+    for t in db.scalars(stmt.order_by(BankTransaction.posted_date, BankTransaction.id)).all():
+        out=bank_txn_out(t)
+        out['suggestion']=suggest_for_txn(db, t) if t.status==ReconStatus.pending else None
+        items.append(out)
+    return {'items':items,'total':len(items)}
+@app.get('/reconciliation/summary')
+def recon_summary(month:str=Query(...), db:Session=Depends(get_db), _:User=Depends(get_current_user)):
+    d=parse_ym(month); nxt=add_months(d,1)
+    txns=db.scalars(select(BankTransaction).where(BankTransaction.posted_date>=d, BankTransaction.posted_date<nxt)).all()
+    charges=db.scalars(select(RentCharge).where(RentCharge.reference_month==d)).all()
+    recebido=sum((t.amount for t in txns if t.kind==TxnKind.credit), Decimal('0.00'))
+    conciliado=sum((t.amount for t in txns if t.kind==TxnKind.credit and t.status==ReconStatus.reconciled), Decimal('0.00'))
+    nao_conc=sum((t.amount for t in txns if t.kind==TxnKind.credit and t.status==ReconStatus.pending), Decimal('0.00'))
+    esperado=sum((c.amount_due for c in charges), Decimal('0.00'))
+    em_aberto=sum((c.amount_due-c.amount_paid for c in charges if c.status!=ChargeStatus.paid), Decimal('0.00'))
+    return {'month':month,'recebido':money(recebido),'esperado':money(esperado),'conciliado':money(conciliado),'nao_conciliado':money(nao_conc),'em_aberto':money(em_aberto)}
+@app.get('/reconciliation/charges')
+def recon_charges(month:str=Query(...), db:Session=Depends(get_db), _:User=Depends(get_current_user)):
+    """Visão por aluguel previsto: cada cobrança do mês + lançamento vinculado e/ou sugerido (por nome)."""
+    d=parse_ym(month); nxt=add_months(d,1)
+    charges=db.scalars(select(RentCharge).where(RentCharge.reference_month==d).order_by(RentCharge.id)).all()
+    # casa cada crédito pendente do mês a um inquilino (uma vez)
+    pend=[]
+    for t in db.scalars(select(BankTransaction).where(BankTransaction.kind==TxnKind.credit, BankTransaction.status==ReconStatus.pending, BankTransaction.posted_date>=d, BankTransaction.posted_date<nxt)).all():
+        ten,conf=match_tenant(db, t.counterparty_name or '', t.counterparty_doc, t.amount)
+        pend.append((t, ten.id if ten else None, conf))
+    items=[]; esperado=recebido=aberto=Decimal('0.00')
+    for c in charges:
+        lease=c.lease; unit=lease.unit; prop=unit.property
+        prim=next((lk.tenant for lk in lease.tenant_links if lk.is_primary), None)
+        tenants=', '.join(lk.tenant.full_name for lk in lease.tenant_links)
+        linked=db.scalar(select(BankTransaction).where(BankTransaction.rent_charge_id==c.id))
+        sug=None; conf=None
+        if c.status!=ChargeStatus.paid and prim:
+            cands=[(t,cf) for (t,tid,cf) in pend if tid==prim.id and not t.rent_charge_id]
+            if cands:
+                cands.sort(key=lambda x:(x[1]=='alta', x[0].amount==c.amount_due), reverse=True)
+                sug, conf = cands[0]
+        esperado+=c.amount_due; recebido+=c.amount_paid
+        if c.status!=ChargeStatus.paid: aberto+=c.amount_due-c.amount_paid
+        items.append({'charge':charge_out(c),'property':prop.name,'unit':unit.name,'tenants':tenants,
+                      'linked_txn':bank_txn_out(linked) if linked else None,
+                      'suggested_txn':bank_txn_out(sug) if sug else None,'confidence':conf})
+    return {'month':month,'esperado':money(esperado),'recebido':money(recebido),'em_aberto':money(aberto),'items':items}
+@app.post('/bank/transactions/{id}/match')
+def bank_match(id:int, data:MatchIn, db:Session=Depends(get_db), _:User=Depends(require_roles(UserRole.admin,UserRole.manager))):
+    t=db.get(BankTransaction,id)
+    if not t: raise HTTPException(404,'Lançamento não encontrado')
+    if data.rent_charge_id:
+        c=db.get(RentCharge,data.rent_charge_id)
+        if not c: raise HTTPException(404,'Cobrança não encontrada')
+        c.amount_paid=t.amount; c.paid_date=t.posted_date; recompute_charge(c)
+        t.rent_charge_id=c.id
+        prim=next((lt.tenant_id for lt in c.lease.tenant_links if lt.is_primary), None)
+        t.tenant_id=prim
+    elif data.expense_id:
+        e=db.get(Expense,data.expense_id)
+        if not e: raise HTTPException(404,'Despesa não encontrada')
+        e.paid_date=t.posted_date; e.status=ExpenseStatus.paid; t.expense_id=e.id
+    else:
+        raise HTTPException(422,'Informe rent_charge_id ou expense_id')
+    t.status=ReconStatus.reconciled; db.commit(); return bank_txn_out(t)
+@app.post('/bank/transactions/{id}/create-expense')
+def bank_create_expense(id:int, data:TxnExpenseIn, db:Session=Depends(get_db), _:User=Depends(require_roles(UserRole.admin,UserRole.manager))):
+    t=db.get(BankTransaction,id)
+    if not t: raise HTTPException(404,'Lançamento não encontrado')
+    if t.kind!=TxnKind.debit: raise HTTPException(422,'Só débitos viram despesa')
+    ref=data.reference_period or date(t.posted_date.year, t.posted_date.month, 1)
+    e=Expense(property_id=data.property_id, category=data.category, reference_period=ref, amount=t.amount, due_date=t.posted_date, paid_date=t.posted_date, status=ExpenseStatus.paid, notes=f'Criada da conciliação: {t.memo or ""} {t.counterparty_name or ""}'.strip())
+    db.add(e); db.flush(); t.expense_id=e.id; t.status=ReconStatus.reconciled; db.commit(); return bank_txn_out(t)
+@app.post('/bank/transactions/{id}/ignore')
+def bank_ignore(id:int, db:Session=Depends(get_db), _:User=Depends(require_roles(UserRole.admin,UserRole.manager))):
+    t=db.get(BankTransaction,id)
+    if not t: raise HTTPException(404,'Lançamento não encontrado')
+    t.status=ReconStatus.ignored; db.commit(); return bank_txn_out(t)
+@app.post('/bank/transactions/{id}/unmatch')
+def bank_unmatch(id:int, db:Session=Depends(get_db), _:User=Depends(require_roles(UserRole.admin,UserRole.manager))):
+    t=db.get(BankTransaction,id)
+    if not t: raise HTTPException(404,'Lançamento não encontrado')
+    if t.rent_charge_id:
+        c=db.get(RentCharge,t.rent_charge_id)
+        if c: c.amount_paid=Decimal('0.00'); c.paid_date=None; recompute_charge(c)
+    if t.expense_id:
+        e=db.get(Expense,t.expense_id)
+        if e: e.paid_date=None; e.status=ExpenseStatus.pending
+    t.rent_charge_id=None; t.expense_id=None; t.tenant_id=None; t.status=ReconStatus.pending; db.commit(); return bank_txn_out(t)
 
 @app.get('/inadimplencia')
 def inadimplencia(db:Session=Depends(get_db), _:User=Depends(get_current_user)):

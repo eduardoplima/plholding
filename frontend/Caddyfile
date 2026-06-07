@@ -1,0 +1,17 @@
+# Produção: serve o frontend estático e faz proxy de /api -> backend (mesma origem).
+# Em teste local, suba com APP_DOMAIN=:80 (HTTP sem TLS). Em prod, APP_DOMAIN=app.holdingpl.com.br.
+{$APP_DOMAIN:app.holdingpl.com.br} {
+	encode gzip
+
+	# /api/* -> backend (handle_path remove o prefixo /api)
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	# SPA: arquivos estáticos com fallback para index.html
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

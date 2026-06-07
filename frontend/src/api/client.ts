@@ -12,6 +12,27 @@ export type RentCharge = { id:number; lease_id:number; reference_month:string; d
 export type Expense = { id:number; property_id?:number|null; debt_id?:number|null; category:string; reference_period:string; amount:string; due_date?:string|null; paid_date?:string|null; status:string; notes?:string|null };
 export type Debt = { id:number; name:string; kind:string; principal_amount:string; installment_amount?:string|null; installments_count?:number|null; first_due_date?:string|null; outstanding_balance:string; property_id?: number|null; start_date?:string|null; notes?:string|null };
 export type DocItem = { id:number; original_filename:string; content_type:string; size_bytes:number; document_type:string; owner_entity_type:string; owner_entity_id:number };
+export type ReconSuggestion = {
+  kind: 'rent_charge' | 'expense' | 'none';
+  confidence?: 'alta' | 'media';
+  tenant?: Tenant;
+  rent_charge?: RentCharge | null;
+  expense?: Expense | null;
+  suggested_category?: string;
+};
+export type BankTxn = {
+  id:number; account_id:string; fitid:string; posted_date:string; kind:'credit'|'debit';
+  amount:string; counterparty_name?:string|null; counterparty_doc?:string|null; memo?:string|null;
+  status:'pending'|'reconciled'|'ignored'; rent_charge_id?:number|null; expense_id?:number|null;
+  tenant_id?:number|null; suggestion?: ReconSuggestion | null;
+};
+export type ReconSummary = { month:string; recebido:string; esperado:string; conciliado:string; nao_conciliado:string; em_aberto:string };
+export type ReconChargeRow = {
+  charge: RentCharge & { due_date?: string };
+  property: string; unit: string; tenants: string;
+  linked_txn?: BankTxn | null; suggested_txn?: BankTxn | null; confidence?: 'alta' | 'media' | null;
+};
+export type ReconChargesResp = { month:string; esperado:string; recebido:string; em_aberto:string; items: ReconChargeRow[] };
 
 let accessToken = localStorage.getItem('plh_access') ?? '';
 let refreshToken = localStorage.getItem('plh_refresh') ?? '';

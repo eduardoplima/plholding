@@ -359,6 +359,8 @@ button:disabled {
     width: 100%;
     flex-direction: row;
     overflow-x: auto;
+    height: auto;
+    position: static;
   }
   .pl-admin__sidebar .pl-admin__brand { display: none; }
   .pl-admin__nav {
@@ -405,3 +407,10 @@ textarea.pl-input { min-height: 84px; padding: var(--pl-s-3) var(--pl-s-4); resi
 .pl-modal__body { padding: var(--pl-s-4) var(--pl-s-6) var(--pl-s-6); }
 .pl-modal__foot { display: flex; gap: var(--pl-s-3); justify-content: flex-end; margin-top: var(--pl-s-6); }
 .pl-subsection { margin-top: var(--pl-s-6); padding-top: var(--pl-s-5); border-top: 1px solid var(--pl-border); }
+
+/* ---------- Accordion ---------- */
+.pl-accordion { border: 1px solid var(--pl-border); border-radius: var(--pl-r-md); margin-bottom: var(--pl-s-3); overflow: hidden; background: var(--pl-surface); }
+.pl-accordion__head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px; border: 0; background: var(--pl-navy-050); color: var(--pl-graphite); font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; transition: background .14s; }
+.pl-accordion__head:hover { background: var(--pl-navy-100, color-mix(in srgb, var(--pl-navy-050) 70%, var(--pl-navy-700) 10%)); }
+.pl-accordion__count { margin-left: auto; font-weight: 500; font-size: 13px; color: var(--pl-text-muted); }
+.pl-accordion__body .pl-table-wrap { border: 0; border-radius: 0; }
