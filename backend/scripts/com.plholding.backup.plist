@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Agendamento semanal do backup (launchd / macOS).
+  Roda todo domingo às 03:00.
+
+  Instalar:
+    cp backend/scripts/com.plholding.backup.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.plholding.backup.plist
+  Rodar agora (teste):
+    launchctl start com.plholding.backup
+  Remover:
+    launchctl unload ~/Library/LaunchAgents/com.plholding.backup.plist
+
+  Ajuste os caminhos absolutos se o repositório não estiver em /Users/eduardo/Dev/plholding.
+  O PATH inclui locais comuns de docker/rclone/zip; ajuste se instalou em outro lugar.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.plholding.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/eduardo/Dev/plholding/backend/scripts/backup.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key><integer>0</integer>
+        <key>Hour</key><integer>3</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/eduardo/Dev/plholding/backend/backups/backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/eduardo/Dev/plholding/backend/backups/backup.err.log</string>
+</dict>
+</plist>

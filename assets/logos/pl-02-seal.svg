@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" fill="none">
+  
+  
+  <circle cx="160" cy="160" r="140" stroke="#102a47" stroke-width="1.5" fill="none"></circle>
+  <circle cx="160" cy="160" r="128" stroke="#102a47" stroke-width="0.75" fill="none"></circle>
+
+  
+  <defs>
+    <path id="topArc" d="M 60 160 A 100 100 0 0 1 260 160"></path>
+    <path id="bottomArc" d="M 70 175 A 90 90 0 0 0 250 175"></path>
+  </defs>
+  <text font-family="Manrope, sans-serif" font-size="14" font-weight="600" letter-spacing="0.32em" fill="#102a47">
+    <textPath href="#topArc" startOffset="50%" text-anchor="middle">PEREIRA · LIMA</textPath>
+  </text>
+  <text font-family="Manrope, sans-serif" font-size="9" font-weight="600" letter-spacing="0.36em" fill="#4a463d">
+    <textPath href="#bottomArc" startOffset="50%" text-anchor="middle">HOLDING · EST · MMXXIV</textPath>
+  </text>
+
+  
+  <g fill="#b8965a">
+    <ellipse cx="44" cy="160" rx="3" ry="6" transform="rotate(45 44 160)"></ellipse>
+    <ellipse cx="276" cy="160" rx="3" ry="6" transform="rotate(-45 276 160)"></ellipse>
+  </g>
+
+  
+  <g fill="#102a47">
+    <text x="160" y="170" font-family="Manrope, sans-serif" font-size="56" font-weight="500" letter-spacing="-0.02em" text-anchor="middle">P&amp;L</text>
+  </g>
+
+  
+  <g stroke="#b8965a" stroke-width="1.4" stroke-linecap="round" fill="none">
+    
+    <path d="M138 196 Q132 210 130 224"></path>
+    <path d="M134 204 Q128 206 124 210"></path>
+    <path d="M132 214 Q126 216 122 222"></path>
+    
+    <path d="M182 196 Q188 210 190 224"></path>
+    <path d="M186 204 Q192 206 196 210"></path>
+    <path d="M188 214 Q194 216 198 222"></path>
+  </g>
+  <g fill="#b8965a">
+    
+    <ellipse cx="125" cy="208" rx="4" ry="2" transform="rotate(-30 125 208)"></ellipse>
+    <ellipse cx="121" cy="218" rx="4" ry="2" transform="rotate(-25 121 218)"></ellipse>
+    <ellipse cx="195" cy="208" rx="4" ry="2" transform="rotate(30 195 208)"></ellipse>
+    <ellipse cx="199" cy="218" rx="4" ry="2" transform="rotate(25 199 218)"></ellipse>
+    
+    <circle cx="160" cy="226" r="3.5"></circle>
+  </g>
+
+  
+  <g fill="#102a47">
+    <path d="M160 130 L156 138 L160 142 L164 138 Z"></path>
+  </g>
+</svg>

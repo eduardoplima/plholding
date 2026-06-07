@@ -1,0 +1,277 @@
+/* ============================================================
+   P&L Holding — site.css (produção)
+   Use em conjunto com tokens.css.
+   Cobre: layout-base, header/nav, hero, cards de imóveis,
+   seções, footer e área administrativa.
+   ============================================================ */
+
+@import url('./tokens.css');
+
+/* ---------- Layout-base ---------- */
+.pl-container {
+  width: 100%;
+  max-width: var(--pl-container);
+  margin-inline: auto;
+  padding-inline: var(--pl-s-7);
+}
+.pl-container--narrow { max-width: var(--pl-container-sm); }
+
+.pl-section {
+  padding-block: var(--pl-s-9);
+}
+.pl-section--dark {
+  background: var(--pl-primary);
+  color: var(--pl-bone-050);
+}
+
+/* ---------- Header / nav ---------- */
+.pl-header {
+  background: var(--pl-primary);
+  color: var(--pl-bone-050);
+}
+.pl-header__util {
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 10px 0;
+  font-size: var(--pl-fs-xs);
+  font-family: var(--pl-font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.pl-header__util-inner {
+  display: flex;
+  justify-content: space-between;
+  opacity: 0.78;
+}
+.pl-header__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--pl-s-5);
+}
+.pl-logo { width: 200px; }
+.pl-nav {
+  display: flex;
+  gap: var(--pl-s-7);
+  font-size: var(--pl-fs-sm);
+  font-weight: 500;
+}
+.pl-nav a {
+  color: rgba(255,255,255,0.78);
+  text-decoration: none;
+  padding-bottom: 4px;
+  border-bottom: 2px solid transparent;
+  transition: color .15s, border-color .15s;
+}
+.pl-nav a:hover,
+.pl-nav a[aria-current="page"] {
+  color: #fff;
+  border-color: var(--pl-accent);
+}
+
+/* ---------- Hero ---------- */
+.pl-hero {
+  background: var(--pl-primary);
+  color: var(--pl-bone-050);
+  padding-block: var(--pl-s-8) var(--pl-s-10);
+  position: relative;
+  overflow: hidden;
+}
+.pl-hero::before {
+  content: '';
+  position: absolute; inset: 0;
+  opacity: 0.04;
+  background-image:
+    linear-gradient(rgba(255,255,255,1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,1) 1px, transparent 1px);
+  background-size: 64px 64px;
+  pointer-events: none;
+}
+.pl-hero__inner {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: var(--pl-s-8);
+  align-items: end;
+}
+.pl-eyebrow-row {
+  display: flex; align-items: center; gap: var(--pl-s-3);
+  margin-bottom: var(--pl-s-5);
+}
+.pl-eyebrow-row::before {
+  content: ''; width: 28px; height: 1.5px; background: var(--pl-accent);
+}
+.pl-hero__title {
+  font-size: var(--pl-fs-display);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-weight: 200;
+  margin: 0;
+}
+.pl-hero__title em {
+  font-style: italic; font-weight: 500;
+}
+
+/* ---------- KPI strip ---------- */
+.pl-kpis { display: flex; flex-direction: column; gap: var(--pl-s-5); }
+.pl-kpi {
+  border-top: 1px solid rgba(255,255,255,0.12);
+  padding-top: 18px;
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.pl-kpi:first-child { border-top-color: var(--pl-accent); }
+.pl-kpi__label {
+  font-family: var(--pl-font-mono);
+  font-size: 13px;
+  color: rgba(250,247,241,0.6);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pl-kpi__value {
+  font-size: 36px; font-weight: 300; letter-spacing: -0.02em;
+}
+
+/* ---------- Cards de imóveis ---------- */
+.pl-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--pl-s-5);
+}
+.pl-property {
+  background: var(--pl-surface);
+  border: 1px solid var(--pl-border);
+  display: flex; flex-direction: column;
+}
+.pl-property__media {
+  aspect-ratio: 4 / 3;
+  background:
+    repeating-linear-gradient(135deg,
+      var(--pl-bone-100) 0 12px,
+      var(--pl-bone-200) 12px 24px);
+}
+.pl-property__body { padding: 20px 22px 24px; }
+.pl-property__meta {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--pl-font-mono);
+  font-size: 11px;
+  color: var(--pl-stone-500);
+  margin-bottom: 10px;
+}
+.pl-property__title {
+  font-size: 22px; font-weight: 500; letter-spacing: -0.01em;
+  margin: 0 0 4px; color: var(--pl-graphite);
+}
+.pl-property__area {
+  font-size: 14px; color: var(--pl-stone-700); margin: 0;
+}
+.pl-property__foot {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--pl-border);
+}
+.pl-property__price-label {
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--pl-stone-500);
+}
+.pl-property__price {
+  font-size: 20px; font-weight: 600; color: var(--pl-primary); margin-top: 2px;
+}
+
+/* ---------- Footer ---------- */
+.pl-footer {
+  background: var(--pl-primary-deep);
+  color: rgba(250,247,241,0.7);
+  padding-block: var(--pl-s-8) var(--pl-s-6);
+}
+.pl-footer__cols {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  gap: var(--pl-s-7);
+  margin-bottom: var(--pl-s-7);
+}
+.pl-footer__col-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--pl-accent);
+  margin-bottom: 18px;
+}
+.pl-footer__bot {
+  display: flex; justify-content: space-between;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  padding-top: 24px;
+  font-family: var(--pl-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+/* ---------- Admin (área autenticada) ---------- */
+.pl-admin { display: flex; min-height: 100vh; background: var(--pl-bg); }
+.pl-admin__sidebar {
+  width: 240px;
+  background: var(--pl-primary);
+  color: var(--pl-bone-050);
+  display: flex; flex-direction: column;
+}
+.pl-admin__sidebar a {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  color: rgba(255,255,255,0.65);
+  text-decoration: none;
+  transition: background .14s, color .14s;
+}
+.pl-admin__sidebar a[aria-current="page"] {
+  color: #fff;
+  background: rgba(255,255,255,0.10);
+  font-weight: 600;
+}
+.pl-admin__sidebar a:not([aria-current="page"]):hover {
+  background: rgba(255,255,255,.055);
+  color: rgba(255,255,255,.88);
+}
+.pl-admin__main { flex: 1; display: flex; flex-direction: column; }
+.pl-admin__topbar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: var(--pl-s-5) var(--pl-s-6);
+  border-bottom: 1px solid var(--pl-border);
+  background: var(--pl-surface);
+}
+.pl-admin__grid {
+  padding: var(--pl-s-6);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--pl-s-5);
+}
+.pl-kpi-card {
+  background: var(--pl-surface);
+  border: 1px solid var(--pl-border);
+  border-radius: var(--pl-r-lg);
+  padding: var(--pl-s-5);
+}
+
+/* ---------- Status pills ---------- */
+.pl-status {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: var(--pl-r-pill);
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.pl-status--ok { background: rgba(74,107,62,0.10); color: var(--pl-success); }
+.pl-status--available { background: var(--pl-gold-100); color: var(--pl-gold-700); }
+.pl-status--reform { background: var(--pl-navy-050); color: var(--pl-navy-700); }
+.pl-status--late { background: rgba(142,58,47,0.10); color: var(--pl-danger); }
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 1024px) {
+  .pl-hero__inner,
+  .pl-grid-3,
+  .pl-footer__cols { grid-template-columns: 1fr; gap: var(--pl-s-6); }
+  .pl-admin { flex-direction: column; }
+  .pl-admin__sidebar { width: 100%; flex-direction: row; overflow-x: auto; }
+}
+@media (max-width: 640px) {
+  .pl-container { padding-inline: var(--pl-s-5); }
+  .pl-section { padding-block: var(--pl-s-7); }
+  .pl-nav { display: none; }
+}

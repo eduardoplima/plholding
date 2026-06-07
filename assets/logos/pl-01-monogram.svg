@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 200" fill="none">
+  
+  
+  <g fill="#102a47">
+    
+    <path d="M40 40 H78 C96 40 110 54 110 72 C110 90 96 104 78 104 H58 V160 H40 Z M58 56 V88 H76 C84 88 90 81 90 72 C90 63 84 56 76 56 Z"></path>
+    
+    <path d="M186 40 H204 V144 H252 V160 H186 Z"></path>
+  </g>
+  
+  <g fill="#102a47">
+    <path d="M148 102 C148 92 152 84 160 80 C153 75 149 68 149 60 C149 49 158 40 170 40 C182 40 191 49 191 60 C191 70 184 78 175 81 L173 82 L161 96 L177 116 C180 110 182 104 183 96 H170 V82 H183 V60.5 H170 V73 C170 73 170 74 170 75 L170 76 L170 76 Q170 79 168 82 L168 82 L150 105 C146 110 144 116 144 124 C144 138 154 148 168 148 C176 148 183 145 188 140 L196 152 C188 158 180 161 168 161 C146 161 130 146 130 125 C130 116 134 108 140 102 Z"></path>
+  </g>
+  
+  <g fill="#b8965a">
+    <path d="M170 28 C166 30 163 33 162 38 C161 42 162 46 165 49 C168 46 170 42 171 38 C172 34 171 30 170 28 Z M170 28 C173 30 175 33 175 37 L175 37"></path>
+    <path d="M170 28 L170 38" stroke="#b8965a" stroke-width="1" fill="none"></path>
+  </g>
+  
+  <g fill="#102a47">
+    <text x="270" y="92" font-family="Manrope, sans-serif" font-size="22" font-weight="600" letter-spacing="0.02em">PEREIRA</text>
+    <text x="270" y="118" font-family="Manrope, sans-serif" font-size="22" font-weight="300" letter-spacing="0.02em">LIMA</text>
+  </g>
+  
+  <rect x="270" y="130" width="40" height="1.5" fill="#b8965a"></rect>
+  <text x="270" y="152" font-family="Manrope, sans-serif" font-size="10" font-weight="600" letter-spacing="0.24em" fill="#4a463d">HOLDING PATRIMONIAL</text>
+</svg>

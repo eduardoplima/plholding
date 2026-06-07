@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="P&amp;L">
+  <title>P&amp;L favicon</title>
+  
+  <rect width="64" height="64" rx="8" fill="#102a47"></rect>
+  <g fill="#faf7f1">
+    <polygon points="14,22 22,22 22,52 14,52"></polygon>
+    <polygon points="14,22 18,16 22,22"></polygon>
+    <rect x="25" y="28" width="11" height="24"></rect>
+    <rect x="39" y="34" width="13" height="18"></rect>
+    <rect x="11" y="52" width="44" height="2"></rect>
+  </g>
+  <path fill="#b8965a" d="M18 16 C 22 10 30 6 37 9 C 33 16 26 19 20 18 C 19 18 18 17 18 16 Z"></path>
+</svg>

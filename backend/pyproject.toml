@@ -1,0 +1,45 @@
+[project]
+name = "plholding-backend"
+version = "0.1.0"
+description = "P&L Holding FastAPI backend"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.115.6",
+  "uvicorn[standard]==0.34.0",
+  "sqlalchemy==2.0.36",
+  "alembic==1.14.0",
+  "pydantic==2.10.4",
+  "pydantic-settings==2.7.0",
+  "psycopg[binary]==3.2.3",
+  "python-jose[cryptography]==3.3.0",
+  "passlib[bcrypt]==1.7.4",
+  "python-multipart==0.0.20",
+  "boto3==1.35.90",
+  "apscheduler==3.11.0",
+  "email-validator==2.2.0"
+]
+
+[dependency-groups]
+dev = [
+  "pytest==8.3.4",
+  "httpx==0.28.1",
+  "ruff==0.8.4",
+  "mypy==1.14.0"
+]
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+
+[tool.ruff.lint]
+ignore = ["E701", "E702", "E703", "E402", "F401", "F811", "E741"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+strict = false
