@@ -6,10 +6,10 @@ import { Toaster, toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users2, FileText, AlertCircle,
   ReceiptText, Landmark, FolderOpen, UserCog, LogOut,
-  Plus, Pencil, Trash2, X, Download, Upload, DoorClosed, ArrowLeftRight, Check, Ban, Wallet, Link2, ChevronDown,
+  Plus, Pencil, Trash2, X, Download, Upload, DoorClosed, ArrowLeftRight, Check, Ban, Wallet, Link2, ChevronDown, Stamp,
 } from 'lucide-react';
 import {
-  api, BankTxn, brDate, clearTokens, Debt, DocItem, downloadDocument, Expense, Lease, List, money,
+  api, BankTxn, brDate, clearTokens, Debt, DocItem, downloadDocument, Expense, IptuResp, IptuRow, Lease, List, money,
   Property, ReconChargeRow, ReconChargesResp, ReconSummary, RentCharge, setTokens, Tenant, Unit, User,
 } from './api/client';
 import './styles.css';
@@ -30,6 +30,7 @@ type AuthCtx = {
   user?: User;
   login(username: string, password: string): Promise<void>;
   logout(): void;
+  refreshUser(): Promise<void>;
   canWrite: boolean;
 };
 
@@ -63,10 +64,15 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     qc.clear();
   }
 
+  async function refreshUser() {
+    setUser(await api<User>('/auth/me'));
+  }
+
   const value = useMemo(() => ({
     user,
     login,
     logout,
+    refreshUser,
     canWrite: user?.role === 'admin' || user?.role === 'manager',
   }), [user]);
 
@@ -124,7 +130,7 @@ function Login() {
   );
 }
 
-type NavKey = 'dashboard' | 'imoveis' | 'inquilinos' | 'contratos' | 'inadimplencia' | 'conciliacao' | 'extrato' | 'despesas' | 'patrimonio' | 'documentos' | 'usuarios';
+type NavKey = 'dashboard' | 'imoveis' | 'inquilinos' | 'contratos' | 'inadimplencia' | 'conciliacao' | 'extrato' | 'despesas' | 'iptu' | 'patrimonio' | 'documentos' | 'usuarios';
 
 const navItems: { key: NavKey; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
   { key: 'dashboard',     label: 'Dashboard',         icon: <LayoutDashboard size={16} className="pl-nav-icon" /> },
@@ -135,6 +141,7 @@ const navItems: { key: NavKey; label: string; icon: React.ReactNode; adminOnly?:
   { key: 'conciliacao',   label: 'Conciliação',        icon: <ArrowLeftRight size={16} className="pl-nav-icon" /> },
   { key: 'extrato',       label: 'Extrato',            icon: <Wallet size={16} className="pl-nav-icon" /> },
   { key: 'despesas',      label: 'Despesas',           icon: <ReceiptText size={16} className="pl-nav-icon" /> },
+  { key: 'iptu',          label: 'IPTU',               icon: <Stamp size={16} className="pl-nav-icon" /> },
   { key: 'patrimonio',    label: 'Patrimônio & Dívidas', icon: <Landmark size={16} className="pl-nav-icon" /> },
   { key: 'documentos',    label: 'Documentos',         icon: <FolderOpen size={16} className="pl-nav-icon" /> },
   { key: 'usuarios',      label: 'Usuários',           icon: <UserCog size={16} className="pl-nav-icon" />, adminOnly: true },
@@ -143,6 +150,7 @@ const navItems: { key: NavKey; label: string; icon: React.ReactNode; adminOnly?:
 function AppShell() {
   const { user, logout } = useAuth();
   const [tab, setTab] = useState<NavKey>('dashboard');
+  const [changePw, setChangePw] = useState(false);
   const current = navItems.find((item) => item.key === tab);
 
   return (
@@ -174,6 +182,7 @@ function AppShell() {
           <div className="pl-user-chip">
             <span>{user?.full_name}</span>
             <span className="pl-role-badge">{roleLabel(user?.role)}</span>
+            <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => setChangePw(true)}>Trocar senha</button>
           </div>
         </header>
         <div className="pl-admin__content">
@@ -185,11 +194,13 @@ function AppShell() {
           {tab === 'conciliacao'   && <Conciliacao />}
           {tab === 'extrato'       && <Extrato />}
           {tab === 'despesas'      && <Expenses />}
+          {tab === 'iptu'          && <IptuPage />}
           {tab === 'patrimonio'    && <Patrimony />}
           {tab === 'documentos'    && <Documents />}
           {tab === 'usuarios'      && <Users />}
         </div>
       </main>
+      {changePw && <Modal title="Trocar senha" onClose={() => setChangePw(false)}><ChangePasswordForm onDone={() => setChangePw(false)} onCancel={() => setChangePw(false)} /></Modal>}
     </div>
   );
 }
@@ -1244,9 +1255,10 @@ function Users() {
 
 function UserForm({ onClose }: { onClose: () => void }) {
   const [f, setF] = useState({ username: '', full_name: '', password: '', role: 'viewer', email: '' });
+  const [mustChange, setMustChange] = useState(true);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<any>) => setF({ ...f, [k]: e.target.value });
   const save = useMutation({
-    mutationFn: () => api<User>('/users', { method: 'POST', body: JSON.stringify({ username: f.username, full_name: f.full_name, password: f.password, role: f.role, email: f.email || null }) }),
+    mutationFn: () => api<User>('/users', { method: 'POST', body: JSON.stringify({ username: f.username, full_name: f.full_name, password: f.password, role: f.role, email: f.email || null, must_change_password: mustChange }) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); toast.success('Usuário criado'); onClose(); },
     onError: (e) => toast.error(errText(e)),
   });
@@ -1265,6 +1277,10 @@ function UserForm({ onClose }: { onClose: () => void }) {
           <Field label="Nome completo" full><input className="pl-input" value={f.full_name} onChange={set('full_name')} required /></Field>
           <Field label="Email (opcional)" full><input className="pl-input" type="email" value={f.email} onChange={set('email')} /></Field>
           <Field label="Senha" full><input className="pl-input" type="password" value={f.password} onChange={set('password')} required minLength={6} autoComplete="new-password" /></Field>
+          <label className="pl-field pl-field--full" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} />
+            <span>Exigir troca de senha no primeiro acesso</span>
+          </label>
         </div>
         <FormFoot onCancel={onClose} pending={save.isPending} submitLabel="Criar usuário" />
       </form>
@@ -1495,6 +1511,86 @@ function CreateExpenseModal({ txn, onClose, onCreate }: { txn: BankTxn; onClose:
   );
 }
 
+/* ---------- IPTU ---------- */
+
+const IPTU_YEAR = 2026;
+
+function IptuPage() {
+  const { canWrite } = useAuth();
+  const data = useQuery({ queryKey: ['iptu', IPTU_YEAR], queryFn: () => api<IptuResp>(`/iptu?year=${IPTU_YEAR}`) });
+  const [linkFor, setLinkFor] = useState<IptuRow | null>(null);
+  const save = useMutation({
+    mutationFn: ({ pid, body }: { pid: number; body: any }) => api<IptuRow>(`/iptu/${pid}/${IPTU_YEAR}`, { method: 'PUT', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['iptu', IPTU_YEAR] }); },
+    onError: (e) => toast.error(errText(e)),
+  });
+  const rows = data.data?.items ?? [];
+  const pagos = rows.filter((r) => r.paid).length;
+
+  return (
+    <Page title="IPTU" subtitle={`Controle de pagamento do IPTU por imóvel — ${IPTU_YEAR}.`}>
+      {data.isError && <QueryError />}
+      <div className="pl-dashboard-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
+        <KpiCard label={`Pagos em ${IPTU_YEAR}`} value={`${pagos}/${rows.length}`} loading={data.isLoading} />
+        <KpiCard label="Pendentes" value={rows.length - pagos} loading={data.isLoading} />
+      </div>
+      {data.isLoading ? <TableSkeleton cols={4} /> : !rows.length ? <Empty icon={<Stamp size={32} />} text="Nenhum imóvel cadastrado." /> : (
+        <DataTable>
+          <thead><tr><th>Imóvel</th><th>Sequencial</th><th>Inscrição</th><th>{IPTU_YEAR} — IPTU pago?</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.property_id}>
+                <td style={{ fontWeight: 500 }}>{r.property}</td>
+                <td className="pl-mono">{r.sequencial ?? '—'}</td>
+                <td className="pl-mono">{r.inscricao ?? '—'}</td>
+                <td>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: canWrite ? 'pointer' : 'default' }}>
+                    <input type="checkbox" checked={r.paid} disabled={!canWrite || save.isPending} onChange={(e) => save.mutate({ pid: r.property_id, body: { paid: e.target.checked } })} />
+                    <span>{r.paid ? 'Pago' : 'Não pago'}</span>
+                  </label>
+                  <div style={{ marginTop: 4 }}>
+                    {r.bank_txn
+                      ? <span style={{ fontSize: 12, color: 'var(--pl-stone-500)' }}>
+                          <Link2 size={12} style={{ verticalAlign: 'middle' }} /> {money(r.bank_txn.amount)} · {brDate(r.bank_txn.posted_date)} · {r.bank_txn.counterparty_name ?? r.bank_txn.memo}
+                          {canWrite && <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" style={{ marginLeft: 8 }} onClick={() => save.mutate({ pid: r.property_id, body: { bank_txn_id: null } })}>desvincular</button>}
+                        </span>
+                      : canWrite && <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" onClick={() => setLinkFor(r)}>vincular extrato</button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      )}
+      {linkFor && <DebitoPicker iptu={linkFor} onClose={() => setLinkFor(null)} onPick={(txnId) => { save.mutate({ pid: linkFor.property_id, body: { bank_txn_id: txnId } }); setLinkFor(null); }} />}
+    </Page>
+  );
+}
+
+function DebitoPicker({ iptu, onClose, onPick }: { iptu: IptuRow; onClose: () => void; onPick: (txnId: number) => void }) {
+  const txns = useQuery({ queryKey: ['bank-debits'], queryFn: () => api<List<BankTxn>>('/bank/transactions?kind=debit') });
+  const rows = txns.data?.items ?? [];
+  return (
+    <Modal title={`Vincular IPTU ${iptu.year} — ${iptu.property}`} onClose={onClose} wide>
+      {txns.isLoading ? <TableSkeleton cols={4} /> : !rows.length ? <Empty text="Nenhum débito no extrato." detail="Importe o extrato em Extrato." /> : (
+        <DataTable>
+          <thead><tr><th>Data</th><th>Contraparte / histórico</th><th>Valor</th><th></th></tr></thead>
+          <tbody>
+            {rows.map((t) => (
+              <tr key={t.id}>
+                <td>{brDate(t.posted_date)}</td>
+                <td>{t.counterparty_name ?? t.memo ?? '—'}</td>
+                <td style={{ fontWeight: 500, color: 'var(--pl-danger)' }}>{money(t.amount)}</td>
+                <td><button type="button" className="pl-btn pl-btn--primary pl-btn--sm" onClick={() => onPick(t.id)}>Vincular</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      )}
+    </Modal>
+  );
+}
+
 /* ---------- Labels ---------- */
 
 function Status({ value, label }: { value: string; label?: string }) {
@@ -1536,9 +1632,64 @@ function debtKindLabel(kind: string) {
   return labels[kind] ?? kind;
 }
 
+function ChangePasswordForm({ forced, onDone, onCancel }: { forced?: boolean; onDone: () => void; onCancel?: () => void }) {
+  const { refreshUser } = useAuth();
+  const [cur, setCur] = useState('');
+  const [nw, setNw] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const save = useMutation({
+    mutationFn: () => {
+      if (nw !== confirm) throw new Error('A confirmação não confere');
+      if (nw.length < 6) throw new Error('A nova senha precisa de ao menos 6 caracteres');
+      return api<User>('/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password: cur, new_password: nw }) });
+    },
+    onSuccess: async () => { await refreshUser(); toast.success('Senha alterada'); onDone(); },
+    onError: (e) => toast.error(errText(e)),
+  });
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+      <label className="pl-field"><span className="pl-label">Senha atual</span><input className="pl-input" type="password" value={cur} onChange={(e) => setCur(e.target.value)} autoComplete="current-password" required /></label>
+      <label className="pl-field"><span className="pl-label">Nova senha</span><input className="pl-input" type="password" value={nw} onChange={(e) => setNw(e.target.value)} autoComplete="new-password" minLength={6} required /></label>
+      <label className="pl-field"><span className="pl-label">Confirmar nova senha</span><input className="pl-input" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" required /></label>
+      <div className="pl-modal__foot">
+        {!forced && onCancel && <button type="button" className="pl-btn pl-btn--ghost" onClick={onCancel}>Cancelar</button>}
+        <button type="submit" className="pl-btn pl-btn--primary" disabled={save.isPending}>{save.isPending ? 'Salvando…' : 'Alterar senha'}</button>
+      </div>
+    </form>
+  );
+}
+
+function ForcePasswordChange() {
+  const { user, logout } = useAuth();
+  return (
+    <main className="pl-login">
+      <section className="pl-login__brand">
+        <img className="pl-login__logo" src={logoLight} alt="P&L Holding" />
+        <div className="pl-login__copy">
+          <p className="pl-eyebrow">Primeiro acesso</p>
+          <h1 className="pl-hero__title">Defina uma <em>nova senha</em>.</h1>
+          <p>Por segurança, no primeiro acesso você precisa trocar a senha provisória antes de usar o sistema.</p>
+        </div>
+        <p className="pl-mono">Sistema interno · P&L Investimentos</p>
+      </section>
+      <section className="pl-login__panel">
+        <div className="pl-login__form">
+          <img src={logoPrimary} alt="P&L Holding" style={{ width: 190, marginBottom: 24 }} />
+          <p className="pl-eyebrow">Olá, {user?.full_name}</p>
+          <h2 className="pl-h2" style={{ marginTop: 8, marginBottom: 8 }}>Trocar senha</h2>
+          <ChangePasswordForm forced onDone={() => { /* refreshUser já atualiza */ }} />
+          <button type="button" className="pl-btn pl-btn--ghost pl-btn--sm" style={{ marginTop: 16 }} onClick={logout}>Sair</button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function Root() {
   const { user } = useAuth();
-  return user ? <AppShell /> : <Login />;
+  if (!user) return <Login />;
+  if (user.must_change_password) return <ForcePasswordChange />;
+  return <AppShell />;
 }
 
 createRoot(document.getElementById('root')!).render(

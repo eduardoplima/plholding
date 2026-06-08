@@ -152,3 +152,63 @@ def test_reconciliation_charges_view():
     after = client.get('/reconciliation/charges?month=2026-04', headers=h).json()
     row2 = [r for r in after['items'] if r['charge']['id'] == row['charge']['id']][0]
     assert row2['charge']['status'] == 'paid' and row2['linked_txn'] and row2['suggested_txn'] is None
+
+
+def test_iptu_grid_toggle_and_link():
+    client = TestClient(app)
+    h = auth_headers(client)
+    import time
+    pname = f'Imovel IPTU {time.time()}'
+    pid = client.post('/properties', json={'name': pname, 'kind': 'casa', 'rental_mode': 'whole', 'sequencial': 'SEQ-1', 'inscricao': 'INSC-1'}, headers=h).json()['id']
+
+    def myrow():
+        return [r for r in client.get('/iptu?year=2026', headers=h).json()['items'] if r['property_id'] == pid][0]
+
+    r0 = myrow()
+    assert r0['paid'] is False and r0['sequencial'] == 'SEQ-1' and r0['inscricao'] == 'INSC-1'
+
+    # marcar pago
+    client.put(f'/iptu/{pid}/2026', json={'paid': True}, headers=h)
+    assert myrow()['paid'] is True
+
+    # vincular um débito do extrato -> mantém pago + vínculo
+    from datetime import date as _date
+    from decimal import Decimal as _D
+    from app.main import BankTransaction, SessionLocal, TxnKind
+    db = SessionLocal()
+    try:
+        db.add(BankTransaction(account_id='caixa', fitid='IPTU-DEB-1', posted_date=_date(2026, 3, 1), kind=TxnKind.debit, amount=_D('500.00'), memo='PG ORG GOV'))
+        db.commit()
+        bid = db.query(BankTransaction).filter_by(fitid='IPTU-DEB-1').first().id
+    finally:
+        db.close()
+    linked = client.put(f'/iptu/{pid}/2026', json={'bank_txn_id': bid}, headers=h).json()
+    assert linked['paid'] is True and linked['bank_txn'] and linked['bank_txn']['id'] == bid
+
+    # desmarcar limpa o vínculo
+    client.put(f'/iptu/{pid}/2026', json={'paid': False}, headers=h)
+    final = myrow()
+    assert final['paid'] is False and final['bank_txn'] is None
+
+
+def test_must_change_password_flow():
+    client = TestClient(app)
+    h = auth_headers(client)
+    import time
+    uname = f'novo{int(time.time())}'
+    created = client.post('/users', json={'username': uname, 'full_name': 'Novo Usuario', 'password': 'senha123', 'role': 'manager', 'must_change_password': True}, headers=h)
+    assert created.status_code == 201 and created.json()['must_change_password'] is True
+
+    # login do novo usuário: /auth/me indica troca obrigatória
+    tok = client.post('/auth/login', json={'username': uname, 'password': 'senha123'}).json()['access']
+    uh = {'Authorization': f'Bearer {tok}'}
+    assert client.get('/auth/me', headers=uh).json()['must_change_password'] is True
+
+    # senha atual errada -> 400
+    assert client.post('/auth/change-password', json={'current_password': 'errada', 'new_password': 'novaSenha1'}, headers=uh).status_code == 400
+    # troca correta -> flag limpa
+    ok = client.post('/auth/change-password', json={'current_password': 'senha123', 'new_password': 'novaSenha1'}, headers=uh)
+    assert ok.status_code == 200 and ok.json()['must_change_password'] is False
+    # senha antiga não loga mais; a nova sim
+    assert client.post('/auth/login', json={'username': uname, 'password': 'senha123'}).status_code == 401
+    assert 'access' in client.post('/auth/login', json={'username': uname, 'password': 'novaSenha1'}).json()

@@ -1,7 +1,7 @@
 export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 export type Role = 'admin' | 'manager' | 'viewer';
-export type User = { id: number; username: string; email?: string | null; full_name: string; role: Role; is_active: boolean };
+export type User = { id: number; username: string; email?: string | null; full_name: string; role: Role; is_active: boolean; must_change_password?: boolean };
 export type List<T> = { items: T[]; total: number; limit?: number; offset?: number };
 export type Property = { id:number; name:string; kind:string; rental_mode:string; address_line?:string|null; city?:string|null; state?:string|null; cep?:string|null; matricula?:string|null; sequencial?:string|null; inscricao?:string|null; market_value?: string | null; notes?:string|null; units?: Unit[] };
 export type Unit = { id:number; property_id:number; name:string; base_rent:string; status:string; notes?:string|null };
@@ -33,6 +33,8 @@ export type ReconChargeRow = {
   linked_txn?: BankTxn | null; suggested_txn?: BankTxn | null; confidence?: 'alta' | 'media' | null;
 };
 export type ReconChargesResp = { month:string; esperado:string; recebido:string; em_aberto:string; items: ReconChargeRow[] };
+export type IptuRow = { property_id:number; property:string; sequencial?:string|null; inscricao?:string|null; year:number; paid:boolean; bank_txn?: BankTxn|null };
+export type IptuResp = { year:number; items: IptuRow[] };
 
 let accessToken = localStorage.getItem('plh_access') ?? '';
 let refreshToken = localStorage.getItem('plh_refresh') ?? '';

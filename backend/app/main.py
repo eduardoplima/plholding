@@ -79,6 +79,7 @@ class User(Base, TimestampMixin):
     full_name: Mapped[str]=mapped_column(String(255))
     role: Mapped[UserRole]=mapped_column(Enum(UserRole), default=UserRole.viewer)
     is_active: Mapped[bool]=mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool]=mapped_column(Boolean, default=False)
 
 class Property(Base, TimestampMixin):
     __tablename__='properties'
@@ -222,6 +223,16 @@ class BankTransaction(Base):
     notes: Mapped[Optional[str]]=mapped_column(Text, nullable=True)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+class IptuPayment(Base, TimestampMixin):
+    __tablename__='iptu_payments'
+    __table_args__=(UniqueConstraint('property_id','year', name='uq_iptu_property_year'),)
+    id: Mapped[int]=mapped_column(primary_key=True)
+    property_id: Mapped[int]=mapped_column(ForeignKey('properties.id', ondelete='CASCADE'), index=True)
+    year: Mapped[int]=mapped_column(Integer, index=True)
+    paid: Mapped[bool]=mapped_column(Boolean, default=False)
+    bank_txn_id: Mapped[Optional[int]]=mapped_column(ForeignKey('bank_transactions.id', ondelete='SET NULL'), nullable=True)
+    notes: Mapped[Optional[str]]=mapped_column(Text, nullable=True)
+
 # passlib's bcrypt backend can be brittle across bcrypt releases; pbkdf2_sha256 is used here
 # as a deterministic, salted password hasher for the local app/test environment.
 pwd_context = CryptContext(schemes=['pbkdf2_sha256'], deprecated='auto')
@@ -260,8 +271,9 @@ class CamelModel(BaseModel):
     model_config=ConfigDict(from_attributes=True, use_enum_values=True)
 class LoginRequest(BaseModel): username: str; password: str
 class RefreshRequest(BaseModel): refresh: str
-class UserCreate(BaseModel): username: str=Field(min_length=3); full_name: str; password: str=Field(min_length=6); role: UserRole=UserRole.viewer; email: Optional[EmailStr]=None
-class UserRead(CamelModel): id:int; username:str; email:Optional[EmailStr]=None; full_name:str; role:UserRole; is_active:bool
+class UserCreate(BaseModel): username: str=Field(min_length=3); full_name: str; password: str=Field(min_length=6); role: UserRole=UserRole.viewer; email: Optional[EmailStr]=None; must_change_password: bool=False
+class UserRead(CamelModel): id:int; username:str; email:Optional[EmailStr]=None; full_name:str; role:UserRole; is_active:bool; must_change_password:bool=False
+class ChangePasswordIn(BaseModel): current_password: str; new_password: str=Field(min_length=6)
 class UserUpdate(BaseModel): full_name:Optional[str]=None; role:Optional[UserRole]=None; is_active:Optional[bool]=None; password:Optional[str]=None; email:Optional[EmailStr]=None
 class ListResponse(CamelModel): items:list[Any]; total:int; limit:int; offset:int
 class PropertyIn(BaseModel):
@@ -282,10 +294,11 @@ class ExpenseIn(BaseModel): category:ExpenseCategory; reference_period:date; amo
 class DebtIn(BaseModel): name:str; kind:DebtKind; principal_amount:Decimal; installment_amount:Optional[Decimal]=None; installments_count:Optional[int]=Field(default=None, ge=1); first_due_date:Optional[date]=None; outstanding_balance:Decimal; property_id:Optional[int]=None; start_date:Optional[date]=None; notes:Optional[str]=None
 class MatchIn(BaseModel): rent_charge_id:Optional[int]=None; expense_id:Optional[int]=None
 class TxnExpenseIn(BaseModel): category:ExpenseCategory; property_id:Optional[int]=None; reference_period:Optional[date]=None
+class IptuIn(BaseModel): paid:Optional[bool]=None; bank_txn_id:Optional[int]=None
 
 # serializers
 def money(v): return str(Decimal(v or 0).quantize(Decimal('0.01')))
-def user_out(u:User): return {'id':u.id,'username':u.username,'email':u.email,'full_name':u.full_name,'role':u.role.value,'is_active':u.is_active}
+def user_out(u:User): return {'id':u.id,'username':u.username,'email':u.email,'full_name':u.full_name,'role':u.role.value,'is_active':u.is_active,'must_change_password':u.must_change_password}
 def property_out(p:Property): return {'id':p.id,'name':p.name,'kind':p.kind.value,'rental_mode':p.rental_mode.value,'address_line':p.address_line,'city':p.city,'state':p.state,'cep':p.cep,'matricula':p.matricula,'sequencial':p.sequencial,'inscricao':p.inscricao,'market_value':money(p.market_value) if p.market_value is not None else None,'notes':p.notes,'units':[unit_out(u, shallow=True) for u in p.units]}
 def unit_out(u:Unit, shallow=False): return {'id':u.id,'property_id':u.property_id,'name':u.name,'base_rent':money(u.base_rent),'status':u.status.value,'notes':u.notes}
 def tenant_out(t:Tenant): return {'id':t.id,'full_name':t.full_name,'cpf':t.cpf,'email':t.email,'phone':t.phone,'notes':t.notes}
@@ -406,12 +419,16 @@ def refresh(data:RefreshRequest, db:Session=Depends(get_db)):
     return token_pair(user)
 @app.get('/auth/me')
 def me(user:User=Depends(get_current_user)): return user_out(user)
+@app.post('/auth/change-password')
+def change_password(data:ChangePasswordIn, db:Session=Depends(get_db), user:User=Depends(get_current_user)):
+    if not verify_password(data.current_password, user.hashed_password): raise HTTPException(400, 'Senha atual incorreta')
+    user.hashed_password=hash_password(data.new_password); user.must_change_password=False; db.commit(); return user_out(user)
 
 @app.post('/users', status_code=201)
 def create_user(data:UserCreate, db:Session=Depends(get_db), _:User=Depends(require_roles(UserRole.admin))):
     if db.scalar(select(User).where(User.username==data.username)): raise HTTPException(409,'Username already exists')
     if data.email and db.scalar(select(User).where(User.email==data.email)): raise HTTPException(409,'E-mail already exists')
-    u=User(username=data.username, email=data.email, full_name=data.full_name, role=data.role, hashed_password=hash_password(data.password)); db.add(u); db.commit(); db.refresh(u); return user_out(u)
+    u=User(username=data.username, email=data.email, full_name=data.full_name, role=data.role, hashed_password=hash_password(data.password), must_change_password=data.must_change_password); db.add(u); db.commit(); db.refresh(u); return user_out(u)
 @app.get('/users')
 def list_users(limit:int=50, offset:int=0, db:Session=Depends(get_db), _:User=Depends(require_roles(UserRole.admin))):
     q=select(User).offset(offset).limit(limit); return {'items':[user_out(x) for x in db.scalars(q)],'total':db.scalar(select(func.count(User.id))),'limit':limit,'offset':offset}
@@ -832,6 +849,36 @@ def bank_unmatch(id:int, db:Session=Depends(get_db), _:User=Depends(require_role
         e=db.get(Expense,t.expense_id)
         if e: e.paid_date=None; e.status=ExpenseStatus.pending
     t.rent_charge_id=None; t.expense_id=None; t.tenant_id=None; t.status=ReconStatus.pending; db.commit(); return bank_txn_out(t)
+
+# ---------- IPTU (grade imóvel × ano) ----------
+def iptu_row(db:Session, p:Property, year:int, ip:'IptuPayment|None'):
+    txn=db.get(BankTransaction, ip.bank_txn_id) if ip and ip.bank_txn_id else None
+    return {'property_id':p.id,'property':p.name,'sequencial':p.sequencial,'inscricao':p.inscricao,
+            'year':year,'paid':bool(ip and ip.paid),'bank_txn':bank_txn_out(txn) if txn else None}
+@app.get('/iptu')
+def list_iptu(year:int=Query(...), db:Session=Depends(get_db), _:User=Depends(get_current_user)):
+    props=db.scalars(select(Property).order_by(Property.name)).all()
+    items=[]
+    for p in props:
+        ip=db.scalar(select(IptuPayment).where(IptuPayment.property_id==p.id, IptuPayment.year==year))
+        items.append(iptu_row(db, p, year, ip))
+    return {'year':year,'items':items}
+@app.put('/iptu/{property_id}/{year}')
+def upsert_iptu(property_id:int, year:int, data:IptuIn, db:Session=Depends(get_db), _:User=Depends(require_roles(UserRole.admin,UserRole.manager))):
+    p=db.get(Property,property_id)
+    if not p: raise HTTPException(404,'Imóvel não encontrado')
+    ip=db.scalar(select(IptuPayment).where(IptuPayment.property_id==property_id, IptuPayment.year==year))
+    if not ip: ip=IptuPayment(property_id=property_id, year=year); db.add(ip)
+    fields=data.model_dump(exclude_unset=True)
+    if 'bank_txn_id' in fields:
+        bid=fields['bank_txn_id']
+        if bid is not None and not db.get(BankTransaction, bid): raise HTTPException(404,'Lançamento não encontrado')
+        ip.bank_txn_id=bid
+        if bid is not None: ip.paid=True
+    if 'paid' in fields:
+        ip.paid=fields['paid']
+        if not ip.paid: ip.bank_txn_id=None
+    db.commit(); db.refresh(ip); return iptu_row(db, p, year, ip)
 
 @app.get('/inadimplencia')
 def inadimplencia(db:Session=Depends(get_db), _:User=Depends(get_current_user)):
